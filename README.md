@@ -82,9 +82,6 @@ radio:
 
   # Optional: RTL-SDR device index (default: 0)
   device_index: 0
-
-  # Optional: Sample rate in kHz (default: 32)
-  sample_rate: 32
 ```
 
 - `frequency`: Required. The center frequency to monitor in MHz (e.g., 461.375 for 461.375 MHz)
@@ -94,7 +91,6 @@ radio:
   - Higher values increase sensitivity but may introduce noise
   - Recommended: -7 (auto) or 12-20 for manual control
 - `device_index`: Optional. Which RTL-SDR device to use if you have multiple (default: 0)
-- `sample_rate`: Optional. RTL-SDR sample rate in kHz (default: 32)
 
 #### 3. API Keys and Credentials
 
