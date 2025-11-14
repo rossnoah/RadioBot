@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ branding }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-blue-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <a
+      href="/search"
+      class="text-4xl font-extrabold mb-8 text-center text-indigo-600 dark:text-indigo-400 underline mt-4"
+    >
+      Search Transcripts
+    </a>
+    <div
+      class="container mx-auto p-4 min-h-screen flex items-center justify-center"
+    >
+      <div
+        class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full max-w-md"
+      >
+        <h1
+          class="text-4xl font-extrabold mb-8 text-center text-indigo-600 dark:text-indigo-400"
+        >
+          Available Recording Dates
+        </h1>
+        <ul class="space-y-4">
+          {% for date, formatted_date in date_info %}
+          <li>
+            <a
+              href="/files/{{ date }}"
+              class="block bg-indigo-50 dark:bg-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500 transition-colors duration-300 p-4 rounded-lg shadow-sm text-indigo-600 dark:text-indigo-300 font-semibold text-center"
+            >
+              {{ formatted_date }}
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </body>
+</html>

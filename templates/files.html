@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Transcript for {{ formatted_date }} [{{ branding }}]</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+
+    <style>
+      /* Flash animation for new items */
+      @keyframes flashBackground {
+        0% {
+          background-color: #ffff99; /* Light yellow */
+        }
+        100% {
+          background-color: transparent; /* Back to normal */
+        }
+      }
+
+      /* Apply the flash animation to new items */
+      .flash {
+        animation: flashBackground 5s ease-in-out;
+      }
+
+      /* Highlight animation for scrolled-to items from search */
+      @keyframes highlightPulse {
+        0%, 100% {
+          background-color: rgba(99, 102, 241, 0.1); /* Indigo with transparency */
+        }
+        50% {
+          background-color: rgba(99, 102, 241, 0.3);
+        }
+      }
+
+      .highlight-target {
+        animation: highlightPulse 2s ease-in-out 3;
+        border-left: 4px solid rgb(99, 102, 241) !important;
+        padding-left: 8px;
+      }
+    </style>
+  </head>
+  <body class="bg-blue-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div class="container mx-auto p-4">
+      <h1
+        class="text-4xl font-extrabold text-indigo-600 dark:text-indigo-400 mt-8 mt-6 text-center"
+      >
+        Transcript for {{ formatted_date }}
+      </h1>
+      <div class="mb-4">
+        <a
+          href="/"
+          class="text-lg text-indigo-500 dark:text-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-500 font-semibold hover:underline"
+        >
+          Back to Date List
+        </a>
+      </div>
+      <ul
+        id="file-list"
+        class="space-y-0.5 bg-white dark:bg-gray-800 p-4 rounded"
+      >
+        {% for file, recording_time, length, transcript, unit_name in files %}
+        <li id="{{ file }}" class="flex items-center border-b border-gray-200 scroll-target">
+          <span class="text-gray-500 dark:text-gray-400 text-xs w-24"
+            >{{ recording_time }}
+
+            <br />
+            <span>{{unit_name}}</span>
+          </span>
+          <!-- Audio player with lazy loading -->
+          {% if not is_mobile %}
+          <div class="flex-shrink-0 mr-8">
+            <audio
+              controls
+              class="w-72 lazy-load-audio"
+              data-src="/play/{{ date }}/{{ file }}"
+            >
+              Your browser does not support the audio element.
+            </audio>
+          </div>
+          {% endif %} {% if transcript %}
+          <span class="font-mono flex-1">{{ transcript }}</span>
+          {% else %}
+          <span class="text-gray-400 dark:text-gray-500 italic flex-1"
+            >[No transcript available]</span
+          >
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <script>
+      const isMobile = "{{ is_mobile }}" == "True";
+      console.log("isMobile", isMobile);
+
+      if (!isMobile) {
+        console.log("Not mobile");
+      }
+
+      // Lazy load audio files using Intersection Observer
+      document.addEventListener("DOMContentLoaded", function () {
+        const lazyLoadAudioElements =
+          document.querySelectorAll(".lazy-load-audio");
+
+        const audioObserver = new IntersectionObserver((entries, observer) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              const audioElement = entry.target;
+              const src = audioElement.getAttribute("data-src");
+              if (src) {
+                const sourceElement = document.createElement("source");
+                sourceElement.src = src;
+                sourceElement.type = "audio/wav";
+                audioElement.appendChild(sourceElement);
+                audioElement.load();
+                observer.unobserve(audioElement); // Stop observing after it's loaded
+              }
+            }
+          });
+        });
+
+        lazyLoadAudioElements.forEach((audio) => {
+          audioObserver.observe(audio);
+        });
+
+        // Handle scrolling to a specific recording from search results
+        if (window.location.hash) {
+          const targetId = window.location.hash.substring(1); // Remove the # symbol
+          const targetElement = document.getElementById(targetId);
+          
+          if (targetElement) {
+            // Wait a bit for the page to fully render
+            setTimeout(() => {
+              // Scroll to the element with smooth behavior
+              targetElement.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center' 
+              });
+              
+              // Add highlight class
+              targetElement.classList.add('highlight-target');
+              
+              // Remove highlight after animation completes (6 seconds = 3 cycles * 2s)
+              setTimeout(() => {
+                targetElement.classList.remove('highlight-target');
+              }, 6000);
+            }, 300);
+          }
+        }
+      });
+
+      // Connect to the WebSocket server
+      const socket = io();
+
+      let isInitialConnection = true; // Flag to track the initial connection
+
+      // Reload the page if the connection is lost and then reestablished
+      socket.on("disconnect", () => {
+        console.log("Disconnected from server. Attempting to reconnect...");
+      });
+
+      socket.on("connect", () => {
+        if (!isInitialConnection) {
+          console.log(
+            "Reconnected to server. Reloading page to get missed data..."
+          );
+          location.reload(); // Reload the page to get any missed data
+        } else {
+          console.log("Connected to server for the first time.");
+          isInitialConnection = false; // Set the flag to false after the first connection
+        }
+      });
+
+      // Function to create a new file element and insert it at the top
+      function addFileToList(data) {
+        const fileList = document.getElementById("file-list");
+
+        const listItem = document.createElement("li");
+        listItem.classList.add("flex", "items-center", "flash"); // Add the 'flash' class for animation
+
+        const timeSpan = document.createElement("span");
+        timeSpan.classList.add(
+          "text-gray-500",
+          "dark:text-gray-400",
+          "text-xs",
+          "w-24"
+        );
+        timeSpan.innerHTML = `${data.formatted_time}<br /><span>${
+          data.unit_name || "[No unit name]"
+        }</span>`;
+
+        let audioDiv;
+        if (!isMobile) {
+          audioDiv = document.createElement("div");
+          audioDiv.classList.add("flex-shrink-0", "mr-8");
+          const audioElement = document.createElement("audio");
+          audioElement.controls = true;
+          audioElement.classList.add("w-72");
+          audioElement.setAttribute(
+            "data-src",
+            `/play/{{ date }}/${data.filename}`
+          );
+          audioDiv.appendChild(audioElement);
+        }
+
+        const transcriptSpan = document.createElement("span");
+        transcriptSpan.classList.add("flex-1");
+        if (data.transcript) {
+          transcriptSpan.classList.add("font-mono");
+          transcriptSpan.textContent = data.transcript;
+        } else {
+          transcriptSpan.classList.add(
+            "text-gray-400",
+            "dark:text-gray-500",
+            "italic"
+          );
+          transcriptSpan.textContent = "[No transcript available]";
+        }
+
+        // Append the elements to the list item
+        listItem.appendChild(timeSpan);
+        if (!isMobile) listItem.appendChild(audioDiv); // Append audioDiv only if not mobile
+        listItem.appendChild(transcriptSpan);
+
+        // Insert the new file at the top of the list
+        fileList.insertBefore(listItem, fileList.firstChild);
+
+        if (!isMobile) {
+          const lazyAudioObserver = new IntersectionObserver(
+            (entries, observer) => {
+              entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                  const audioElement = entry.target;
+                  const src = audioElement.getAttribute("data-src");
+                  if (src) {
+                    const sourceElement = document.createElement("source");
+                    sourceElement.src = src;
+                    sourceElement.type = "audio/wav";
+                    audioElement.appendChild(sourceElement);
+                    audioElement.load();
+                    observer.unobserve(audioElement);
+                  }
+                }
+              });
+            }
+          );
+          lazyAudioObserver.observe(audioElement);
+        }
+
+        // Remove the 'flash' class after the animation ends
+        setTimeout(() => {
+          listItem.classList.remove("flash");
+        }, 5000);
+      }
+
+      // Listen for 'file_added' event from the server
+      socket.on("file_added", (data) => {
+        //make sure data.folder_name is the same as the unfornatted date
+        if (data.folder_name !== "{{ date }}") {
+          return;
+        }
+
+        console.log("New file added:", data.filename);
+        addFileToList(data);
+      });
+    </script>
+  </body>
+</html>

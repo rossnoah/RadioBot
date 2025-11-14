@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Search Results for "{{ query }}" [{{ branding }}]</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-blue-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div class="container mx-auto px-4 py-6">
+      <h1
+        class="text-4xl font-extrabold text-indigo-600 dark:text-indigo-400 mb-6 text-center"
+      >
+        Search Results for "{{ query }}"
+      </h1>
+
+      <!-- Search Form -->
+      <div class="flex justify-center mb-6">
+        <form action="/search" method="get" class="w-full max-w-lg flex">
+          <input
+            type="text"
+            name="query"
+            placeholder="Search again..."
+            class="flex-1 px-4 py-2 rounded-l border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:bg-gray-800 dark:text-gray-100"
+            required
+          />
+          <button
+            type="submit"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-r font-semibold"
+          >
+            Search
+          </button>
+        </form>
+      </div>
+
+      <div class="mb-4 text-center">
+        <a
+          href="/"
+          class="text-lg text-indigo-500 dark:text-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-500 font-semibold hover:underline"
+        >
+          Back to Home
+        </a>
+      </div>
+
+      {% if results %}
+      <ul class="space-y-4 bg-white dark:bg-gray-800 p-4 rounded shadow" id="search-results-list">
+        {% for item in results %}
+        <li
+          class="flex flex-col md:flex-row md:items-center p-4 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition border-b border-gray-200 dark:border-gray-700"
+        >
+          <div class="flex flex-col text-sm text-gray-500 dark:text-gray-400 w-40 shrink-0 mb-2 md:mb-0">
+            <span class="font-semibold">{{ item.formatted_time }}</span>
+            <span class="text-xs">{{ item.timestamp.split()[0] }}</span>
+            {% if item.unit_name %}
+            <span class="text-xs mt-1 text-indigo-600 dark:text-indigo-400">{{ item.unit_name }}</span>
+            {% endif %}
+            {% if item.date and item.filename %}
+            <a 
+              href="/files/{{ item.date }}#{{ item.filename }}"
+              class="text-xs mt-2 text-indigo-500 dark:text-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-400 hover:underline"
+              title="Go to this recording on its date page"
+            >
+              View in context →
+            </a>
+            {% endif %}
+          </div>
+          
+          {% if item.date and item.filename %}
+          <div class="flex-shrink-0 mb-2 md:mb-0 md:mr-4 w-full md:w-80">
+            <audio
+              controls
+              class="w-full lazy-load-audio"
+              data-src="/play/{{ item.date }}/{{ item.filename }}"
+            >
+              Your browser does not support the audio element.
+            </audio>
+          </div>
+          {% endif %}
+          
+          <span class="font-mono text-sm flex-1"
+            >{{ item.transcript }}</span
+          >
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-center text-gray-600 dark:text-gray-400 mt-6">
+        No results found for "<strong>{{ query }}</strong>".
+      </p>
+      {% endif %}
+    </div>
+    
+    <script>
+      // Lazy load audio files using Intersection Observer
+      document.addEventListener("DOMContentLoaded", function () {
+        const lazyLoadAudioElements = document.querySelectorAll(".lazy-load-audio");
+
+        const audioObserver = new IntersectionObserver((entries, observer) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              const audioElement = entry.target;
+              const src = audioElement.getAttribute("data-src");
+              if (src) {
+                const sourceElement = document.createElement("source");
+                sourceElement.src = src;
+                sourceElement.type = "audio/wav";
+                audioElement.appendChild(sourceElement);
+                audioElement.load();
+                observer.unobserve(audioElement); // Stop observing after it's loaded
+              }
+            }
+          });
+        });
+
+        lazyLoadAudioElements.forEach((audio) => {
+          audioObserver.observe(audio);
+        });
+      });
+    </script>
+  </body>
+</html>

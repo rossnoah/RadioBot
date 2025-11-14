@@ -1,0 +1,139 @@
+# QuietHours Configuration File
+# Copy this file to config.yaml and fill in your actual values
+# DO NOT commit config.yaml to version control - it contains sensitive credentials
+
+# ============================================================================
+# APPLICATION SETTINGS
+# ============================================================================
+
+application:
+  # Password for accessing the web interface
+  # REQUIRED: Must be set for security
+  password: "your_secure_password_here"
+
+  # Branding name displayed throughout the application
+  # OPTIONAL: Customize the name shown in page titles and headers
+  # Default: "Radio Bot"
+  branding: "Radio Bot"
+  #branding: "YOURDOMAIN.COM"
+
+# ============================================================================
+# RADIO SETTINGS (DSD-FME for DMR)
+# ============================================================================
+# Configuration for the RTL-SDR radio receiver with DSD-FME decoder
+# DSD-FME is used for decoding DMR (Digital Mobile Radio) transmissions
+
+radio:
+  # Center frequency to tune the RTL-SDR receiver (in MHz)
+  # REQUIRED: Set to the DMR frequency you want to monitor
+  # Example: 461.375 for 461.375 MHz
+  frequency: 461.375
+
+  # RF gain setting (0-49)
+  # REQUIRED: Controls receiver sensitivity
+  # - 0 = Hardware AGC (Automatic Gain Control)
+  # - 1-49 = Manual gain in dB
+  # Recommended: 20-35 for manual gain
+  gain: 32
+
+  # RTL-SDR device index
+  # OPTIONAL: Which RTL-SDR device to use if you have multiple dongles
+  # Default: 0 (first device)
+  device_index: 0
+
+# ============================================================================
+# API KEYS AND CREDENTIALS
+# ============================================================================
+
+apis:
+  # Deepgram API key for audio transcription
+  # REQUIRED: Get your API key from https://deepgram.com
+  # Used for converting radio audio recordings to text transcripts
+  deepgram_api_key: "your_deepgram_api_key_here"
+
+# ============================================================================
+# UNIT MAPPINGS
+# ============================================================================
+# Map radio unit IDs to friendly names/operators
+# Units not listed here will display as "Unknown. Radio ID: {id}"
+#
+# Examples:
+#   1: "Dispatch"              - Main dispatch center
+#   1001: "Unit 1: John Doe"   - Patrol unit with operator name
+#   2001: "Cruiser 1"          - Vehicle identifier
+#   4001: "Shared Handheld"    - Shared equipment
+
+units:
+  1: "Dispatch"
+  1001: "Unit 1: John Doe"
+  1002: "Unit 2: Jane Smith"
+  1003: "Unit 3: Bob Johnson"
+  1004: "Unit 4: Alice Williams"
+  1005: "Unit 5: Charlie Brown"
+  2001: "Cruiser 1"
+  2002: "Cruiser 2"
+  3001: "Vehicle 1 (Transport)"
+  4001: "Shared Handheld"
+  4002: "Security Handheld"
+
+# ============================================================================
+# NOTIFICATION CONFIGURATION
+# ============================================================================
+
+notifications:
+  # GroupMe notifications
+  # Send alerts to a GroupMe chat when keywords are detected
+  groupme:
+    # Set to true to enable GroupMe notifications
+    enabled: false
+
+    # GroupMe bot ID (get this from https://dev.groupme.com/bots)
+    # REQUIRED if enabled: Your GroupMe bot ID
+    # To create a bot:
+    #   1. Go to https://dev.groupme.com/bots
+    #   2. Sign in and create a new bot
+    #   3. Copy the Bot ID here
+    bot_id: "your_groupme_bot_id_here"
+
+  # Discord notifications
+  # Send alerts to a Discord channel when keywords are detected
+  discord:
+    # Set to true to enable Discord notifications
+    enabled: false
+
+    # Discord webhook URL (create in Discord channel settings)
+    # REQUIRED if enabled: Your Discord webhook URL
+    # To create a webhook:
+    #   1. Go to your Discord server settings
+    #   2. Navigate to Integrations -> Webhooks
+    #   3. Create a new webhook for your desired channel
+    #   4. Copy the webhook URL here
+    webhook_url: "https://discord.com/api/webhooks/your_webhook_url_here"
+
+  # Alert word lists
+  # Configure which words/phrases trigger notifications
+  wordlists:
+    # Standard wordlist: triggers alert on FIRST occurrence
+    # Use this for important words that should always trigger alerts
+    standard:
+      words:
+        - "example"
+        - "test"
+        - "alert keyword"
+        # Add your custom alert words here, such as:
+        # - "your street name"
+        # - "your dorm name"
+        # - "noise complaint"
+
+    # Strict wordlist: requires MULTIPLE occurrences to trigger alert
+    # Use this to reduce false positives for common words
+    # Word must appear at least 'min_occurrences' times in a single transmission
+    strict:
+      # Minimum number of times a word must appear to trigger alert
+      min_occurrences: 2
+
+      words:
+        - "repeated"
+        # Add words here that should only alert when repeated, such as:
+        # - "party"
+        # - "noise"

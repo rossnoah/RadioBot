@@ -1,0 +1,10 @@
+*.db
+test.wav
+__pycache__/
+files
+temp
+config.yaml
+
+login.log
+events.txt
+dmr_log.jsonl
