@@ -8,3 +8,4 @@ config.yaml
 login.log
 events.txt
 dmr_log.jsonl
+dsd-fme.jsonl

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Create Flask app
 app = Flask(__name__)
-socketio = SocketIO(app)
+socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
 
 # Set up socketio for file organizer
 file_organizer.set_socketio(socketio)
@@ -62,13 +62,8 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
-# Initialize database and start background threads
-if __name__ == "__main__":
-    # Register cleanup handlers
-    atexit.register(cleanup_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
+def initialize_app():
+    """Initialize database and start background services."""
     # Initialize database
     models.init_db()
     logger.info("Database initialized")
@@ -86,6 +81,17 @@ if __name__ == "__main__":
         logger.error(f"Failed to start radio process: {e}")
         logger.error("Server will continue without radio monitoring. Please check your configuration and dsd-fme installation.")
 
+
+# Register cleanup handlers
+atexit.register(cleanup_handler)
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+# Initialize the application
+initialize_app()
+
+# For development: run with python server.py
+if __name__ == "__main__":
     # Start Flask server
     logger.info("Starting Flask-SocketIO server on port 4000...")
-    socketio.run(app, debug=False, port=4000)
+    socketio.run(app, debug=False, host='0.0.0.0', port=4000)
