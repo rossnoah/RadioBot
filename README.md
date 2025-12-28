@@ -1,12 +1,5 @@
 # RadioBot
 
-## Applications
-
-- **Noise Complaints**: Monitor radio chatter to know when campus security or police are responding to noise complaints in your area
-- **Party Planning**: Get advance warning if authorities are heading to your location so you can adjust volume or wrap things up
-- **Situational Awareness**: Stay informed about what's happening around campus during late-night gatherings
-- **Risk Management**: Receive real-time alerts when specific keywords (like your address or dorm name) are mentioned on emergency channels
-
 A real-time radio monitoring and streaming system that captures, processes, and broadcasts DMR radio transmissions through a web interface.
 
 ## Overview
@@ -171,30 +164,26 @@ notifications:
     # Standard wordlist: triggers alert on FIRST occurrence
     standard:
       words:
-        - "noise complaint"
-        - "your street name"
-        - "your dorm building"
+        - "Main Street"
+        - "Second Street"
 
     # Strict wordlist: requires MULTIPLE occurrences
     strict:
       min_occurrences: 2
       words:
-        - "party"
-        - "disturbance"
+        - "example"
 ```
 
 **Standard Wordlist**:
 
 - Triggers alert immediately on first occurrence
 - Use for important words that should always generate alerts
-- Examples: your address, building name, specific alert terms
 
 **Strict Wordlist**:
 
 - Requires word to appear multiple times in a single transmission
 - Reduces false positives for common words
 - `min_occurrences`: Set the threshold (default: 2)
-- Examples: words like "party" or "noise" that might appear in casual conversation
 
 ### Configuration Examples
 
@@ -273,15 +262,6 @@ notifications:
         - "loud"
 ```
 
-### Security Notes
-
-- **Never commit `config.yaml` to version control** - it contains sensitive credentials
-- The file is already included in `.gitignore`
-- `config.yaml.example` is safe to commit as it contains only placeholder values
-- Use strong, unique passwords for `application.password`
-- Keep your Deepgram API key secure and rotate if compromised
-- Limit access to the config file on shared systems: `chmod 600 config.yaml`
-
 ## Usage
 
 Start the server:
@@ -290,33 +270,4 @@ Start the server:
 python server.py
 ```
 
-The server will automatically:
-
-1. Initialize the database
-2. Start the file organizer thread
-3. Launch the radio monitoring process with your configured settings
-4. Start the web interface on port 4000
-
-The radio process (dsd-fme) is automatically managed by the Python server. It will:
-
-- Start automatically when the server starts
-- Use the frequency and gain settings from your `config.yaml`
-- Record audio files to the `./calls` directory
-- Log DMR activity to `dmr_log.jsonl`
-- Stop gracefully when the server shuts down
-
 Access the web interface at `http://localhost:4000`
-
-### Monitoring Radio Status
-
-The server logs will show the radio status on startup:
-
-```
-Radio monitoring started: 461.375 MHz, gain: -7 dB
-```
-
-If the radio fails to start (e.g., dsd-fme not installed or RTL-SDR not connected), the server will continue running without radio monitoring and display an error message.
-
-### Stopping the Server
-
-Press `Ctrl+C` to stop the server. The radio process will be stopped automatically during shutdown.
