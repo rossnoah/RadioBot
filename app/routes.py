@@ -7,6 +7,7 @@ from user_agents import parse
 
 import app.models as models
 from app.config import BRANDING
+from app.services.radio_manager import get_radio_status
 from app.utils import (
     require_password,
     verify_password,
@@ -58,7 +59,8 @@ def setup_routes(app, record_folder: str):
         date_dirs.sort(reverse=True)
 
         date_info = [(date, format_date_display(date)) for date in date_dirs]
-        return render_template("index.html", date_info=date_info, branding=BRANDING)
+        radio_status = get_radio_status()
+        return render_template("index.html", date_info=date_info, branding=BRANDING, radio_status=radio_status)
 
     @files_bp.route("/files/<date>")
     @require_password

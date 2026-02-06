@@ -7,21 +7,68 @@
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
   <body class="bg-blue-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-    <a
-      href="/search"
-      class="text-4xl font-extrabold mb-8 text-center text-indigo-600 dark:text-indigo-400 underline mt-4"
-    >
-      Search Transcripts
-    </a>
-    <div
-      class="container mx-auto p-4 min-h-screen flex items-center justify-center"
-    >
-      <div
-        class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full max-w-md"
-      >
-        <h1
-          class="text-4xl font-extrabold mb-8 text-center text-indigo-600 dark:text-indigo-400"
-        >
+    <div class="container mx-auto p-4 min-h-screen flex flex-col items-center justify-center gap-6">
+
+      <!-- Radio Status Card -->
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full max-w-md">
+        <h2 class="text-xl font-bold mb-4 text-center text-gray-700 dark:text-gray-300">Radio Status</h2>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Status</span>
+          {% if radio_status.running %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+              <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              Running
+            </span>
+          {% else %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300">
+              <span class="w-2 h-2 rounded-full bg-red-500"></span>
+              Stopped
+            </span>
+          {% endif %}
+        </div>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Frequency</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ radio_status.config.frequency }} MHz</span>
+        </div>
+        {% if radio_status.running %}
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Uptime</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {% if radio_status.uptime_seconds is not none %}
+              {% set hours = radio_status.uptime_seconds // 3600 %}
+              {% set minutes = (radio_status.uptime_seconds % 3600) // 60 %}
+              {{ '%dh %02dm' | format(hours, minutes) }}
+            {% else %}
+              --
+            {% endif %}
+          </span>
+        </div>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Next Restart</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {% if radio_status.next_restart_seconds is not none %}
+              {% set hours = radio_status.next_restart_seconds // 3600 %}
+              {% set minutes = (radio_status.next_restart_seconds % 3600) // 60 %}
+              {{ '%dh %02dm' | format(hours, minutes) }}
+            {% else %}
+              --
+            {% endif %}
+          </span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Watchdog</span>
+          {% if radio_status.watchdog_active %}
+            <span class="text-sm font-semibold text-green-600 dark:text-green-400">Active</span>
+          {% else %}
+            <span class="text-sm font-semibold text-yellow-600 dark:text-yellow-400">Inactive</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Recording Dates Card -->
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full max-w-md">
+        <h1 class="text-4xl font-extrabold mb-8 text-center text-indigo-600 dark:text-indigo-400">
           Available Recording Dates
         </h1>
         <ul class="space-y-4">
@@ -37,6 +84,13 @@
           {% endfor %}
         </ul>
       </div>
+
+      <a
+        href="/search"
+        class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold underline transition-colors"
+      >
+        Search Transcripts
+      </a>
     </div>
   </body>
 </html>

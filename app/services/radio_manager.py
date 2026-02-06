@@ -4,10 +4,16 @@ import subprocess
 import logging
 import signal
 import time
+import threading
 from typing import Optional
 from app.config import get_config
 
 logger = logging.getLogger(__name__)
+
+# Watchdog settings
+RESTART_INTERVAL = 3600  # Restart the process every hour (seconds)
+FROZEN_CHECK_INTERVAL = 30  # How often to check for frozen process (seconds)
+FROZEN_TIMEOUT = 300  # Consider process frozen if no log output for 5 minutes (seconds)
 
 
 class RadioManager:
@@ -18,6 +24,9 @@ class RadioManager:
         self.process: Optional[subprocess.Popen] = None
         self.config = get_config().get("radio", {})
         self._validate_config()
+        self._last_start_time: Optional[float] = None
+        self._watchdog_thread: Optional[threading.Thread] = None
+        self._watchdog_running = False
 
     def _validate_config(self):
         """Validate required radio configuration."""
@@ -106,9 +115,14 @@ class RadioManager:
                 self.process = None
                 raise RuntimeError("Failed to start radio process. Check logs for details.")
 
+            self._last_start_time = time.time()
+
             logger.info(f"Radio process started successfully (PID: {self.process.pid})")
             logger.info(f"Monitoring DMR on {self.config['frequency']} MHz (gain: {self.config['gain']})")
             logger.info(f"Logs: dsd-fme.jsonl | Call recordings: temp/")
+
+            # Start watchdog if not already running
+            self._start_watchdog()
 
         except FileNotFoundError:
             logger.error("dsd-fme command not found. Please ensure it is installed and in PATH.")
@@ -118,8 +132,16 @@ class RadioManager:
             self.process = None
             raise
 
-    def stop(self):
-        """Stop the radio monitoring process."""
+    def stop(self, stop_watchdog=True):
+        """Stop the radio monitoring process.
+
+        Args:
+            stop_watchdog: If True, also stop the watchdog thread. Set to False
+                          when the watchdog itself is triggering a restart.
+        """
+        if stop_watchdog:
+            self._stop_watchdog()
+
         if not self.is_running():
             logger.warning("Radio process is not running")
             return
@@ -147,6 +169,7 @@ class RadioManager:
                 self._log_file = None
 
             self.process = None
+            self._last_start_time = None
 
         except Exception as e:
             logger.error(f"Error stopping radio process: {e}")
@@ -158,6 +181,125 @@ class RadioManager:
         self.stop()
         time.sleep(1)
         self.start()
+
+    def _start_watchdog(self):
+        """Start the watchdog thread that monitors process health."""
+        if self._watchdog_running:
+            return
+
+        self._watchdog_running = True
+        self._watchdog_thread = threading.Thread(
+            target=self._watchdog_loop,
+            name="RadioWatchdogThread",
+            daemon=True
+        )
+        self._watchdog_thread.start()
+        logger.info("Radio watchdog started")
+
+    def _stop_watchdog(self):
+        """Stop the watchdog thread."""
+        if not self._watchdog_running:
+            return
+
+        self._watchdog_running = False
+        if self._watchdog_thread and self._watchdog_thread.is_alive():
+            self._watchdog_thread.join(timeout=10)
+        self._watchdog_thread = None
+        logger.info("Radio watchdog stopped")
+
+    def _is_process_frozen(self) -> bool:
+        """Check if the radio process appears frozen by monitoring log file activity.
+
+        Returns:
+            True if the process appears frozen, False otherwise.
+        """
+        log_file = "dsd-fme.jsonl"
+        try:
+            if os.path.exists(log_file):
+                last_modified = os.path.getmtime(log_file)
+                seconds_since_update = time.time() - last_modified
+                if seconds_since_update > FROZEN_TIMEOUT:
+                    logger.warning(
+                        f"Log file hasn't been updated in {seconds_since_update:.0f}s "
+                        f"(threshold: {FROZEN_TIMEOUT}s)"
+                    )
+                    return True
+        except OSError as e:
+            logger.error(f"Error checking log file: {e}")
+
+        return False
+
+    def _watchdog_loop(self):
+        """Background loop that monitors and restarts the radio process."""
+        logger.info(
+            f"Watchdog active: periodic restart every {RESTART_INTERVAL}s, "
+            f"frozen detection after {FROZEN_TIMEOUT}s of inactivity"
+        )
+
+        while self._watchdog_running:
+            try:
+                # Sleep in short intervals so we can stop quickly
+                for _ in range(FROZEN_CHECK_INTERVAL):
+                    if not self._watchdog_running:
+                        return
+                    time.sleep(1)
+
+                if not self._watchdog_running:
+                    return
+
+                # Check if process died unexpectedly
+                if not self.is_running() and self._last_start_time is not None:
+                    logger.warning("Radio process died unexpectedly, restarting...")
+                    try:
+                        # Clean up the dead process
+                        if hasattr(self, '_log_file') and self._log_file:
+                            self._log_file.close()
+                            self._log_file = None
+                        self.process = None
+                        self._last_start_time = None
+                        time.sleep(2)
+                        self.start()
+                    except Exception as e:
+                        logger.error(f"Watchdog failed to restart after crash: {e}")
+                    continue
+
+                if not self.is_running():
+                    continue
+
+                # Check for periodic restart (every hour)
+                if self._last_start_time is not None:
+                    uptime = time.time() - self._last_start_time
+                    if uptime >= RESTART_INTERVAL:
+                        logger.info(
+                            f"Periodic restart triggered (uptime: {uptime:.0f}s / "
+                            f"{uptime / 3600:.1f}h)"
+                        )
+                        self._do_watchdog_restart("periodic restart")
+                        continue
+
+                # Check for frozen process
+                if self._is_process_frozen():
+                    logger.warning("Process appears frozen, restarting...")
+                    self._do_watchdog_restart("frozen process detected")
+
+            except Exception as e:
+                logger.error(f"Watchdog error: {e}", exc_info=True)
+                # Don't let the watchdog die from an unexpected error
+                time.sleep(10)
+
+    def _do_watchdog_restart(self, reason: str):
+        """Perform a restart triggered by the watchdog.
+
+        Args:
+            reason: Human-readable reason for the restart.
+        """
+        try:
+            logger.info(f"Watchdog restart reason: {reason}")
+            self.stop(stop_watchdog=False)
+            time.sleep(2)
+            self.start()
+        except Exception as e:
+            logger.error(f"Watchdog restart failed ({reason}): {e}")
 
     def is_running(self) -> bool:
         """Check if the radio process is running.
@@ -178,9 +320,18 @@ class RadioManager:
             Dictionary with status information
         """
         is_running = self.is_running()
+        uptime = None
+        next_restart = None
+        if is_running and self._last_start_time is not None:
+            uptime = int(time.time() - self._last_start_time)
+            next_restart = max(0, RESTART_INTERVAL - uptime)
+
         status = {
             "running": is_running,
             "pid": self.process.pid if is_running else None,
+            "uptime_seconds": uptime,
+            "next_restart_seconds": next_restart,
+            "watchdog_active": self._watchdog_running,
             "config": {
                 "frequency": self.config["frequency"],
                 "gain": self.config["gain"],
