@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 # Watchdog settings
 FROZEN_CHECK_INTERVAL = 30  # How often to check for frozen process (seconds)
 FROZEN_TIMEOUT = 300  # Consider process frozen if no log output for 5 minutes (seconds)
+MAX_CRASHES_BEFORE_REBOOT = 3  # Reboot after this many crashes in the time window
+CRASH_WINDOW = 300  # Time window (seconds) for counting crashes
 
 # RTL-SDR USB vendor ID (Realtek)
 RTL_SDR_USB_VENDOR_ID = "0bda"
@@ -31,6 +33,7 @@ class RadioManager:
         self._last_message_time: Optional[float] = None
         self._watchdog_thread: Optional[threading.Thread] = None
         self._watchdog_running = False
+        self._crash_times: list[float] = []
 
     def _validate_config(self):
         """Validate required radio configuration."""
@@ -295,8 +298,25 @@ class RadioManager:
                         )
                         return  # Won't reach here if reboot succeeds
 
+                    # Track crash times and check for repeated crashes
+                    now = time.time()
+                    self._crash_times.append(now)
+                    self._crash_times = [
+                        t for t in self._crash_times
+                        if now - t < CRASH_WINDOW
+                    ]
+                    if len(self._crash_times) >= MAX_CRASHES_BEFORE_REBOOT:
+                        self._reboot_system(
+                            f"Process crashed {len(self._crash_times)} times in "
+                            f"{CRASH_WINDOW}s"
+                        )
+                        return
+
                     # USB device still present, just restart the process
-                    logger.info("RTL-SDR USB device still present, restarting process...")
+                    logger.info(
+                        f"RTL-SDR USB device still present, restarting process... "
+                        f"({len(self._crash_times)}/{MAX_CRASHES_BEFORE_REBOOT} crashes in window)"
+                    )
                     try:
                         # Clean up the dead process
                         if hasattr(self, '_log_file') and self._log_file:
@@ -320,6 +340,21 @@ class RadioManager:
                             "RTL-SDR USB device not found (process frozen)"
                         )
                         return
+
+                    # Track frozen restarts in the same crash window
+                    now = time.time()
+                    self._crash_times.append(now)
+                    self._crash_times = [
+                        t for t in self._crash_times
+                        if now - t < CRASH_WINDOW
+                    ]
+                    if len(self._crash_times) >= MAX_CRASHES_BEFORE_REBOOT:
+                        self._reboot_system(
+                            f"Process failed {len(self._crash_times)} times in "
+                            f"{CRASH_WINDOW}s (frozen)"
+                        )
+                        return
+
                     logger.warning("Process appears frozen, restarting...")
                     self._do_watchdog_restart("frozen process detected")
 
