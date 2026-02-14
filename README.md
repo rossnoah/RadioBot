@@ -32,14 +32,22 @@ This project provides a complete solution for monitoring digital radio communica
    pip install -r requirements.txt
    ```
 4. Create and configure your `config.yaml`:
+
    ```bash
    cp config.yaml.example config.yaml
    ```
+
    Then edit `config.yaml` with your settings (see Configuration section below)
    - Set your web interface password
    - Configure radio settings (frequency and gain)
    - Add your Deepgram API key
    - Optionally configure notifications and unit mappings
+
+5. To enable auto restart. Run the following command:
+
+```bash
+echo "ubuntu ALL=(ALL) NOPASSWD: /sbin/reboot" | sudo tee etc/sudoers.d/radiobot-reboot
+```
 
 ## Configuration
 

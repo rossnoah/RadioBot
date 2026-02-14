@@ -15,6 +15,10 @@ RESTART_INTERVAL = 3600  # Restart the process every hour (seconds)
 FROZEN_CHECK_INTERVAL = 30  # How often to check for frozen process (seconds)
 FROZEN_TIMEOUT = 300  # Consider process frozen if no log output for 5 minutes (seconds)
 
+# RTL-SDR USB vendor ID (Realtek)
+RTL_SDR_USB_VENDOR_ID = "0bda"
+# This is used as part of detecting issues with the USB controller and restarting. This was implemented to restart when the USB controller dies on a Raspberry Pi 5.
+
 
 class RadioManager:
     """Manages the dsd-fme radio monitoring process."""
@@ -207,6 +211,40 @@ class RadioManager:
         self._watchdog_thread = None
         logger.info("Radio watchdog stopped")
 
+    def _is_rtlsdr_present(self) -> bool:
+        """Check if an RTL-SDR USB device is visible on the bus.
+
+        Returns:
+            True if an RTL-SDR device is found, False otherwise.
+        """
+        try:
+            usb_devices_path = "/sys/bus/usb/devices"
+            if not os.path.exists(usb_devices_path):
+                return True  # Can't check, assume present
+            for device in os.listdir(usb_devices_path):
+                vendor_file = os.path.join(usb_devices_path, device, "idVendor")
+                if os.path.exists(vendor_file):
+                    with open(vendor_file) as f:
+                        if f.read().strip() == RTL_SDR_USB_VENDOR_ID:
+                            return True
+            return False
+        except Exception as e:
+            logger.error(f"Error checking for RTL-SDR USB device: {e}")
+            return True  # Can't check, assume present to avoid unnecessary reboot
+
+    def _reboot_system(self, reason: str):
+        """Reboot the system to recover from USB controller failure."""
+        logger.critical(
+            f"REBOOTING SYSTEM - {reason}. "
+            "USB controller has likely died and cannot recover without a reboot."
+        )
+        # Give logs a moment to flush
+        time.sleep(2)
+        try:
+            subprocess.run(["sudo", "reboot"], check=True)
+        except Exception as e:
+            logger.critical(f"Failed to reboot: {e}. Manual intervention required!")
+
     def _is_process_frozen(self) -> bool:
         """Check if the radio process appears frozen by monitoring log file activity.
 
@@ -249,7 +287,17 @@ class RadioManager:
 
                 # Check if process died unexpectedly
                 if not self.is_running() and self._last_start_time is not None:
-                    logger.warning("Radio process died unexpectedly, restarting...")
+                    logger.warning("Radio process died unexpectedly")
+
+                    # Check if the RTL-SDR USB device is still present
+                    if not self._is_rtlsdr_present():
+                        self._reboot_system(
+                            "RTL-SDR USB device not found after process crash"
+                        )
+                        return  # Won't reach here if reboot succeeds
+
+                    # USB device still present, just restart the process
+                    logger.info("RTL-SDR USB device still present, restarting process...")
                     try:
                         # Clean up the dead process
                         if hasattr(self, '_log_file') and self._log_file:
@@ -279,6 +327,11 @@ class RadioManager:
 
                 # Check for frozen process
                 if self._is_process_frozen():
+                    if not self._is_rtlsdr_present():
+                        self._reboot_system(
+                            "RTL-SDR USB device not found (process frozen)"
+                        )
+                        return
                     logger.warning("Process appears frozen, restarting...")
                     self._do_watchdog_restart("frozen process detected")
 
