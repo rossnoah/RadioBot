@@ -43,25 +43,23 @@
             {% endif %}
           </span>
         </div>
-        <div class="flex items-center justify-between mb-3">
-          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Next Restart</span>
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Message</span>
           <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            {% if radio_status.next_restart_seconds is not none %}
-              {% set hours = radio_status.next_restart_seconds // 3600 %}
-              {% set minutes = (radio_status.next_restart_seconds % 3600) // 60 %}
-              {{ '%dh %02dm' | format(hours, minutes) }}
+            {% if radio_status.last_message_seconds is not none %}
+              {% if radio_status.last_message_seconds < 60 %}
+                {{ radio_status.last_message_seconds }}s ago
+              {% elif radio_status.last_message_seconds < 3600 %}
+                {{ radio_status.last_message_seconds // 60 }}m ago
+              {% else %}
+                {% set hours = radio_status.last_message_seconds // 3600 %}
+                {% set minutes = (radio_status.last_message_seconds % 3600) // 60 %}
+                {{ '%dh %02dm ago' | format(hours, minutes) }}
+              {% endif %}
             {% else %}
-              --
+              No messages yet
             {% endif %}
           </span>
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Watchdog</span>
-          {% if radio_status.watchdog_active %}
-            <span class="text-sm font-semibold text-green-600 dark:text-green-400">Active</span>
-          {% else %}
-            <span class="text-sm font-semibold text-yellow-600 dark:text-yellow-400">Inactive</span>
-          {% endif %}
         </div>
         {% endif %}
       </div>

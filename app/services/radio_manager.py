@@ -11,7 +11,6 @@ from app.config import get_config
 logger = logging.getLogger(__name__)
 
 # Watchdog settings
-RESTART_INTERVAL = 3600  # Restart the process every hour (seconds)
 FROZEN_CHECK_INTERVAL = 30  # How often to check for frozen process (seconds)
 FROZEN_TIMEOUT = 300  # Consider process frozen if no log output for 5 minutes (seconds)
 
@@ -29,6 +28,7 @@ class RadioManager:
         self.config = get_config().get("radio", {})
         self._validate_config()
         self._last_start_time: Optional[float] = None
+        self._last_message_time: Optional[float] = None
         self._watchdog_thread: Optional[threading.Thread] = None
         self._watchdog_running = False
 
@@ -270,8 +270,7 @@ class RadioManager:
     def _watchdog_loop(self):
         """Background loop that monitors and restarts the radio process."""
         logger.info(
-            f"Watchdog active: periodic restart every {RESTART_INTERVAL}s, "
-            f"frozen detection after {FROZEN_TIMEOUT}s of inactivity"
+            f"Watchdog active: frozen detection after {FROZEN_TIMEOUT}s of inactivity"
         )
 
         while self._watchdog_running:
@@ -314,17 +313,6 @@ class RadioManager:
                 if not self.is_running():
                     continue
 
-                # Check for periodic restart (every hour)
-                if self._last_start_time is not None:
-                    uptime = time.time() - self._last_start_time
-                    if uptime >= RESTART_INTERVAL:
-                        logger.info(
-                            f"Periodic restart triggered (uptime: {uptime:.0f}s / "
-                            f"{uptime / 3600:.1f}h)"
-                        )
-                        self._do_watchdog_restart("periodic restart")
-                        continue
-
                 # Check for frozen process
                 if self._is_process_frozen():
                     if not self._is_rtlsdr_present():
@@ -366,6 +354,10 @@ class RadioManager:
         # Check if process is still alive
         return self.process.poll() is None
 
+    def record_message(self):
+        """Record that a message was received from the radio."""
+        self._last_message_time = time.time()
+
     def get_status(self) -> dict:
         """Get the current status of the radio process.
 
@@ -374,17 +366,18 @@ class RadioManager:
         """
         is_running = self.is_running()
         uptime = None
-        next_restart = None
         if is_running and self._last_start_time is not None:
             uptime = int(time.time() - self._last_start_time)
-            next_restart = max(0, RESTART_INTERVAL - uptime)
+
+        last_message_ago = None
+        if self._last_message_time is not None:
+            last_message_ago = int(time.time() - self._last_message_time)
 
         status = {
             "running": is_running,
             "pid": self.process.pid if is_running else None,
             "uptime_seconds": uptime,
-            "next_restart_seconds": next_restart,
-            "watchdog_active": self._watchdog_running,
+            "last_message_seconds": last_message_ago,
             "config": {
                 "frequency": self.config["frequency"],
                 "gain": self.config["gain"],
@@ -434,3 +427,9 @@ def get_radio_status() -> dict:
     """Get the current radio status."""
     manager = get_radio_manager()
     return manager.get_status()
+
+
+def record_radio_message():
+    """Record that a message was received from the radio."""
+    manager = get_radio_manager()
+    manager.record_message()

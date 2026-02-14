@@ -6,6 +6,7 @@ from datetime import timedelta
 from app.models import get_transcript
 from app.services.transcription import save_transcription
 from app.services.notifications import check_transcript_for_alerts
+from app.services.radio_manager import record_radio_message
 from app.utils import (
     parse_time_from_filename,
     extract_radio_uid_from_filename,
@@ -97,6 +98,12 @@ def process_file(file_path: str, emit_event: bool = True) -> bool:
         return False
 
     logger.info(f"Processing: {file_data['filename']}")
+
+    # Record that we received a message
+    try:
+        record_radio_message()
+    except Exception:
+        pass  # Don't let status tracking break file processing
 
     # Step 1: Transcribe the file
     save_transcription(file_path)
