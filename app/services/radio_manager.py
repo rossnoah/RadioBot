@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Watchdog settings
 FROZEN_CHECK_INTERVAL = 30  # How often to check for frozen process (seconds)
-FROZEN_TIMEOUT = 300  # Consider process frozen if no log output for 5 minutes (seconds)
+FROZEN_TIMEOUT = 1800  # Consider process frozen if no log output for 30 minutes (seconds)
 MAX_CRASHES_BEFORE_REBOOT = 3  # Reboot after this many crashes in the time window
 CRASH_WINDOW = 300  # Time window (seconds) for counting crashes
 
