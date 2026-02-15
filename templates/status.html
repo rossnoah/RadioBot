@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Status – {{ branding }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-blue-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <a
+      href="/"
+      class="fixed top-4 left-4 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold transition-colors text-sm"
+    >
+      &larr; Home
+    </a>
+    <a
+      href="/search"
+      class="fixed top-4 right-4 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold transition-colors text-sm"
+    >
+      Search Transcripts
+    </a>
+
+    <div class="container mx-auto p-4 pt-16 flex flex-col items-center gap-6 max-w-2xl">
+
+      <h1 class="text-3xl font-extrabold text-indigo-600 dark:text-indigo-400">System Status</h1>
+
+      <!-- Radio Status Card -->
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full">
+        <h2 class="text-lg font-bold mb-4 text-gray-700 dark:text-gray-300">Radio</h2>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Status</span>
+          {% if radio_status.running %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+              <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              Running
+            </span>
+          {% else %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300">
+              <span class="w-2 h-2 rounded-full bg-red-500"></span>
+              Stopped
+            </span>
+          {% endif %}
+        </div>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Frequency</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ radio_status.config.frequency }} MHz</span>
+        </div>
+        {% if radio_status.running and radio_status.uptime_seconds is not none %}
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Uptime</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {% set hours = radio_status.uptime_seconds // 3600 %}
+            {% set minutes = (radio_status.uptime_seconds % 3600) // 60 %}
+            {{ '%dh %02dm' | format(hours, minutes) }}
+          </span>
+        </div>
+        {% endif %}
+        {% if radio_status.last_message_seconds is not none %}
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Message</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {% if radio_status.last_message_seconds < 60 %}
+              {{ radio_status.last_message_seconds }}s ago
+            {% elif radio_status.last_message_seconds < 3600 %}
+              {{ radio_status.last_message_seconds // 60 }}m ago
+            {% else %}
+              {% set hours = radio_status.last_message_seconds // 3600 %}
+              {% set minutes = (radio_status.last_message_seconds % 3600) // 60 %}
+              {{ '%dh %02dm ago' | format(hours, minutes) }}
+            {% endif %}
+          </span>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Recordings Stats Card -->
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full">
+        <h2 class="text-lg font-bold mb-4 text-gray-700 dark:text-gray-300">Recordings</h2>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Total Recordings</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ total_recordings }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Storage Used</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ storage_used }}</span>
+        </div>
+      </div>
+
+      <!-- Restart Log Card -->
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full">
+        <h2 class="text-lg font-bold mb-4 text-gray-700 dark:text-gray-300">Restart Log</h2>
+        {% if restarts %}
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                <th class="pb-2 pr-4 font-medium">Time</th>
+                <th class="pb-2 pr-4 font-medium">Reason</th>
+                <th class="pb-2 font-medium text-right">Up For</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+              {% for r in restarts %}
+              <tr class="text-gray-800 dark:text-gray-200">
+                <td class="py-2 pr-4 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">{{ r.timestamp }}</td>
+                <td class="py-2 pr-4">{{ r.reason }}</td>
+                <td class="py-2 text-right whitespace-nowrap">
+                  {% if r.uptime_seconds is not none %}
+                    {% set h = r.uptime_seconds // 3600 %}
+                    {% set m = (r.uptime_seconds % 3600) // 60 %}
+                    {% set s = r.uptime_seconds % 60 %}
+                    {% if h > 0 %}
+                      {{ '%dh %02dm' | format(h, m) }}
+                    {% elif m > 0 %}
+                      {{ '%dm %02ds' | format(m, s) }}
+                    {% else %}
+                      {{ s }}s
+                    {% endif %}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500 dark:text-gray-400">No restarts recorded yet.</p>
+        {% endif %}
+      </div>
+
+    </div>
+  </body>
+</html>

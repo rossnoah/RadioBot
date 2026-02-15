@@ -134,6 +134,45 @@ def setup_routes(app, record_folder: str):
 
         return send_from_directory(folder_path, filename)
 
+    @files_bp.route("/status")
+    @require_password
+    def status():
+        """Show system status: restarts, storage, recording count."""
+        record_folder = app.config['RECORD_FOLDER']
+
+        # Storage and recording count
+        total_bytes = 0
+        total_recordings = 0
+        if os.path.isdir(record_folder):
+            for root, _dirs, files in os.walk(record_folder):
+                for fname in files:
+                    if fname.endswith(".wav"):
+                        total_recordings += 1
+                        try:
+                            total_bytes += os.path.getsize(os.path.join(root, fname))
+                        except OSError:
+                            pass
+
+        # Human-readable storage
+        for unit in ["B", "KB", "MB", "GB", "TB"]:
+            if total_bytes < 1024:
+                storage_used = f"{total_bytes:.1f} {unit}"
+                break
+            total_bytes /= 1024
+        else:
+            storage_used = f"{total_bytes:.1f} TB"
+
+        restarts = models.get_restarts()
+        radio_status = get_radio_status()
+        return render_template(
+            "status.html",
+            branding=BRANDING,
+            radio_status=radio_status,
+            restarts=restarts,
+            storage_used=storage_used,
+            total_recordings=total_recordings,
+        )
+
     @files_bp.route("/search")
     @files_bp.route("/search/<query>")
     @require_password

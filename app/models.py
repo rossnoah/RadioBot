@@ -32,8 +32,43 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_filename ON transcripts (filename)
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS restarts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            uptime_seconds INTEGER
+        )
+    ''')
+
     conn.commit()
     conn.close()
+
+
+def log_restart(reason: str, uptime_seconds=None):
+    """Log a radio restart event."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(
+        'INSERT INTO restarts (timestamp, reason, uptime_seconds) VALUES (?, ?, ?)',
+        (timestamp, reason, uptime_seconds)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_restarts(limit=100):
+    """Get recent restart events, newest first."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT * FROM restarts ORDER BY id DESC LIMIT ?',
+        (limit,)
+    )
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
 
 
 def save_transcript(filename, transcript, api_response):

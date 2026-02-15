@@ -7,6 +7,7 @@ import time
 import threading
 from typing import Optional
 from app.config import get_config
+import app.models as models
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +319,10 @@ class RadioManager:
                         f"({len(self._crash_times)}/{MAX_CRASHES_BEFORE_REBOOT} crashes in window)"
                     )
                     try:
+                        uptime = None
+                        if self._last_start_time is not None:
+                            uptime = int(time.time() - self._last_start_time)
+                        models.log_restart("process crashed unexpectedly", uptime)
                         # Clean up the dead process
                         if hasattr(self, '_log_file') and self._log_file:
                             self._log_file.close()
@@ -371,6 +376,10 @@ class RadioManager:
         """
         try:
             logger.info(f"Watchdog restart reason: {reason}")
+            uptime = None
+            if self._last_start_time is not None:
+                uptime = int(time.time() - self._last_start_time)
+            models.log_restart(reason, uptime)
             self.stop(stop_watchdog=False)
             time.sleep(2)
             self.start()
