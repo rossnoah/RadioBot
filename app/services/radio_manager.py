@@ -35,6 +35,7 @@ class RadioManager:
         self._watchdog_thread: Optional[threading.Thread] = None
         self._watchdog_running = False
         self._crash_times: list[float] = []
+        self._stopped_since: Optional[float] = None  # When process first entered stopped state
 
     def _validate_config(self):
         """Validate required radio configuration."""
@@ -124,6 +125,7 @@ class RadioManager:
                 raise RuntimeError("Failed to start radio process. Check logs for details.")
 
             self._last_start_time = time.time()
+            self._stopped_since = None  # Clear stopped timer on successful start
 
             logger.info(f"Radio process started successfully (PID: {self.process.pid})")
             logger.info(f"Monitoring DMR on {self.config['frequency']} MHz (gain: {self.config['gain']})")
@@ -291,6 +293,7 @@ class RadioManager:
                 # Check if process died unexpectedly
                 if not self.is_running() and self._last_start_time is not None:
                     logger.warning("Radio process died unexpectedly")
+                    self._stopped_since = None  # Reset — crash handler takes over
 
                     # Check if the RTL-SDR USB device is still present
                     if not self._is_rtlsdr_present():
@@ -336,7 +339,24 @@ class RadioManager:
                     continue
 
                 if not self.is_running():
+                    # Track how long we've been stuck in stopped state
+                    if self._stopped_since is None:
+                        self._stopped_since = time.time()
+                        logger.warning("Radio process is stopped and not recovering — starting 2-minute reboot timer")
+                    else:
+                        stuck_duration = time.time() - self._stopped_since
+                        if stuck_duration >= 120:
+                            self._reboot_system(
+                                f"Radio process stuck in stopped state for {stuck_duration:.0f}s"
+                            )
+                            return
+                        logger.warning(
+                            f"Radio process still stopped ({stuck_duration:.0f}s / 120s before reboot)"
+                        )
                     continue
+
+                # Process is running — clear stopped timer
+                self._stopped_since = None
 
                 # Check for frozen process
                 if self._is_process_frozen():
