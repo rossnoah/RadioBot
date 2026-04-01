@@ -1,9 +1,11 @@
 """File processing service - core logic for handling new recordings."""
 import os
+import wave
+import random
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from app.models import get_transcript
+from app.models import get_transcript, save_transcript
 from app.services.transcription import save_transcription
 from app.services.notifications import check_transcript_for_alerts
 from app.services.radio_manager import record_radio_message
@@ -133,6 +135,82 @@ def process_file(file_path: str, emit_event: bool = True) -> bool:
             logger.error(f"Error checking transcript for alerts: {e}", exc_info=True)
 
     return True
+
+
+def inject_fake_message(transcript: str, unit_id: int, unit_name: str, record_folder: str, duration: float = None) -> dict | None:
+    """
+    Inject a fake radio message without transcription.
+
+    Creates a silent WAV file, saves the provided transcript directly to the DB,
+    emits a WebSocket event, and runs alert checks — just like a real transmission.
+
+    Args:
+        transcript: The fake transcript text to use
+        unit_id: Radio unit ID to embed in the filename
+        unit_name: Display name for the unit (used in alerts and WebSocket event)
+        record_folder: Root folder where date-organized recordings are stored
+        duration: Audio duration in seconds; auto-calculated from word count if None
+
+    Returns:
+        Dict with filename and date, or None on failure
+    """
+    now = datetime.now()
+    date_str = now.strftime("%Y%m%d")
+    time_str = now.strftime("%H%M%S")
+    random_id = random.randint(10000, 99999)
+    filename = f"{date_str}_{time_str}_{random_id}_DMR_CC_1_GROUP_TGT_1_SRC_{unit_id}.wav"
+
+    # Auto-calculate duration: ~2.5 words/sec for radio speech, minimum 2s
+    if duration is None:
+        word_count = len(transcript.split())
+        duration = max(2.0, word_count / 2.5)
+
+    # Ensure date folder exists
+    date_folder = os.path.join(record_folder, date_str)
+    os.makedirs(date_folder, exist_ok=True)
+
+    file_path = os.path.join(date_folder, filename)
+
+    # Write silent WAV (8kHz mono 16-bit PCM)
+    sample_rate = 8000
+    n_frames = int(sample_rate * duration)
+    try:
+        with wave.open(file_path, 'w') as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(b'\x00\x00' * n_frames)
+    except Exception as e:
+        logger.error(f"Failed to create fake WAV file: {e}", exc_info=True)
+        return None
+
+    # Save transcript directly to DB (no Deepgram), flagged as fake
+    save_transcript(file_path, transcript, '{}', is_fake=True)
+
+    # Emit WebSocket event so the UI updates in real time
+    formatted_time = parse_time_from_filename(filename)
+    duration_str = str(timedelta(seconds=round(duration, 2)))
+    if _socketio:
+        try:
+            _socketio.emit('file_added', {
+                'filename': filename,
+                'formatted_time': formatted_time,
+                'duration': duration_str,
+                'transcript': transcript,
+                'folder_name': date_str,
+                'unit_name': unit_name,
+            })
+        except Exception as e:
+            logger.error(f"Error emitting fake message WebSocket event: {e}", exc_info=True)
+
+    # Run normal alert checks
+    try:
+        check_transcript_for_alerts(transcript, unit_name)
+    except Exception as e:
+        logger.error(f"Error checking fake transcript for alerts: {e}", exc_info=True)
+
+    logger.info(f"Injected fake message: {filename}")
+    return {'filename': filename, 'date': date_str}
 
 
 def process_file_batch(file_paths: list) -> dict:

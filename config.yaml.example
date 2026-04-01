@@ -17,6 +17,11 @@ application:
   branding: "Radio Bot"
   #branding: "YOURDOMAIN.COM"
 
+  # Password for the hidden prank page (/prank)
+  # OPTIONAL: Lets you inject fake transmissions that trigger alerts normally
+  # Default: "gotcha"
+  #prank_password: "your_prank_password_here"
+
 # ============================================================================
 # RADIO SETTINGS (DSD-FME for DMR)
 # ============================================================================

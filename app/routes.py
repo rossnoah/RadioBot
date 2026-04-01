@@ -1,13 +1,14 @@
 """Flask routes and blueprints."""
 import os
 from datetime import timedelta
-from flask import Blueprint, render_template, request, abort, send_from_directory, redirect, url_for
+from flask import Blueprint, render_template, request, abort, send_from_directory, redirect, url_for, make_response
 from werkzeug.utils import safe_join
 from user_agents import parse
 
 import app.models as models
-from app.config import BRANDING
+from app.config import BRANDING, PRANK_PASSWORD
 from app.services.radio_manager import get_radio_status
+from app.services.file_processor import inject_fake_message
 from app.utils import (
     require_password,
     verify_password,
@@ -19,7 +20,10 @@ from app.utils import (
     format_date_database,
     get_wav_length,
     get_unit_info,
+    _load_unit_config,
 )
+
+_PRANK_COOKIE = "prank_auth"
 
 # Create blueprints
 files_bp = Blueprint('files', __name__)
@@ -204,6 +208,74 @@ def setup_routes(app, record_folder: str):
 
         output.reverse()
         return render_template("search_results.html", query=query, results=output, branding=BRANDING)
+
+    @files_bp.route("/prank", methods=["GET", "POST"])
+    def prank():
+        """Hidden prank message injector. Password-protected separately from the main site."""
+        error = None
+        success = None
+        is_authed = request.cookies.get(_PRANK_COOKIE) == PRANK_PASSWORD
+
+        if request.method == "POST":
+            action = request.form.get("action", "")
+
+            if action == "auth":
+                password = request.form.get("password", "")
+                if password == PRANK_PASSWORD:
+                    resp = make_response(redirect(url_for("files.prank")))
+                    resp.set_cookie(_PRANK_COOKIE, PRANK_PASSWORD, max_age=60 * 60 * 2, httponly=True, samesite="Lax")
+                    return resp
+                error = "Wrong password"
+
+            elif action == "cleanup" and is_authed:
+                filenames = models.delete_prank_transcripts()
+                deleted_files = 0
+                for fname in filenames:
+                    try:
+                        if os.path.isfile(fname):
+                            os.remove(fname)
+                            deleted_files += 1
+                    except OSError:
+                        pass
+                success = {'cleanup': True, 'count': len(filenames), 'files_deleted': deleted_files}
+
+            elif action == "inject" and is_authed:
+                transcript = request.form.get("transcript", "").strip()
+                unit_id_raw = request.form.get("unit_id", "").strip()
+                custom_unit_name = request.form.get("custom_unit_name", "").strip()
+
+                if not transcript:
+                    error = "Transcript text is required"
+                else:
+                    try:
+                        unit_id = int(unit_id_raw) if unit_id_raw else 9999
+                    except ValueError:
+                        unit_id = 9999
+
+                    unit_map = _load_unit_config()
+                    if custom_unit_name:
+                        unit_name = custom_unit_name
+                    else:
+                        unit_name = unit_map.get(unit_id, f"Unknown. Radio ID: {unit_id}")
+
+                    record_folder = app.config['RECORD_FOLDER']
+                    result = inject_fake_message(transcript, unit_id, unit_name, record_folder)
+                    if result:
+                        success = result
+                    else:
+                        error = "Failed to create fake message"
+
+        unit_map = _load_unit_config() if is_authed else {}
+        prank_count = len(models.get_prank_transcripts()) if is_authed else 0
+        return render_template(
+            "prank.html",
+            branding=BRANDING,
+            is_authed=is_authed,
+            error=error,
+            success=success,
+            units=unit_map,
+            prank_count=prank_count,
+        )
 
     # Register blueprints
     app.register_blueprint(files_bp, url_prefix='')

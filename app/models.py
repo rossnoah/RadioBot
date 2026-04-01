@@ -32,6 +32,13 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_filename ON transcripts (filename)
     ''')
 
+    # Migration: add is_fake column if it doesn't exist yet
+    try:
+        cursor.execute('ALTER TABLE transcripts ADD COLUMN is_fake INTEGER NOT NULL DEFAULT 0')
+        conn.commit()
+    except Exception:
+        pass  # Column already exists
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS restarts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,19 +78,41 @@ def get_restarts(limit=100):
     return results
 
 
-def save_transcript(filename, transcript, api_response):
+def save_transcript(filename, transcript, api_response, is_fake: bool = False):
     """Save or update a transcript in the database."""
     conn = get_db_connection()
     cursor = conn.cursor()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     cursor.execute('''
-        INSERT OR REPLACE INTO transcripts (filename, transcript, response, timestamp)
-        VALUES (?, ?, ?, ?)
-    ''', (filename, transcript, api_response, timestamp))
+        INSERT OR REPLACE INTO transcripts (filename, transcript, response, timestamp, is_fake)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (filename, transcript, api_response, timestamp, 1 if is_fake else 0))
 
     conn.commit()
     conn.close()
+
+
+def get_prank_transcripts():
+    """Return all prank/fake transcripts."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM transcripts WHERE is_fake = 1 ORDER BY timestamp DESC')
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+def delete_prank_transcripts():
+    """Delete all prank/fake transcripts and return their filenames."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT filename FROM transcripts WHERE is_fake = 1')
+    filenames = [row['filename'] for row in cursor.fetchall()]
+    cursor.execute('DELETE FROM transcripts WHERE is_fake = 1')
+    conn.commit()
+    conn.close()
+    return filenames
 
 
 def get_transcript(filename):
