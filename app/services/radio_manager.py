@@ -54,15 +54,15 @@ class RadioManager:
         Returns:
             List of command arguments for subprocess
         """
-        # Get configuration values (only device, frequency, and gain are configurable)
+        # Get configuration values
         frequency = self.config["frequency"]
         gain = self.config["gain"]
         device_index = self.config.get("device_index", 0)
+        ppm = self.config.get("ppm", 0)
 
-        # Hard-coded values for RTL-SDR input
         # Format: rtl:dev:freq:gain:ppm:bw:sq:vol
-        # ppm=0, bandwidth=12, squelch=0, volume=2
-        rtl_input = f"rtl:{device_index}:{frequency}M:{gain}:0:12:0:3"
+        # bandwidth=12, squelch=0, volume=3
+        rtl_input = f"rtl:{device_index}:{frequency}M:{gain}:{ppm}:12:0:3"
 
         # Ensure directories exist
         temp_dir = "./temp"
@@ -100,13 +100,15 @@ class RadioManager:
             # Open log file for dsd-fme stderr output (contains main output)
             log_file = open("dsd-fme.jsonl", "a")
 
-            # Start the process
+            # Start the process in its own process group so we can kill it
+            # and all its children cleanly on shutdown
             # Note: dsd-fme outputs to stderr, not stdout
             self.process = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
                 stderr=log_file,
-                text=True
+                text=True,
+                preexec_fn=os.setsid
             )
 
             # Store log file handle for cleanup
@@ -159,17 +161,23 @@ class RadioManager:
         try:
             logger.info(f"Stopping radio process (PID: {self.process.pid})")
 
-            # Try graceful shutdown first
-            self.process.terminate()
+            # Try graceful shutdown of the entire process group
+            try:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass  # Process already gone
 
             # Wait up to 5 seconds for graceful shutdown
             try:
                 self.process.wait(timeout=5)
                 logger.info("Radio process stopped gracefully")
             except subprocess.TimeoutExpired:
-                # Force kill if it doesn't stop gracefully
+                # Force kill the entire process group if it doesn't stop gracefully
                 logger.warning("Radio process did not stop gracefully, force killing")
-                self.process.kill()
+                try:
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 self.process.wait()
                 logger.info("Radio process force killed")
 
@@ -180,6 +188,7 @@ class RadioManager:
 
             self.process = None
             self._last_start_time = None
+
 
         except Exception as e:
             logger.error(f"Error stopping radio process: {e}")
@@ -446,6 +455,7 @@ class RadioManager:
                 "frequency": self.config["frequency"],
                 "gain": self.config["gain"],
                 "device_index": self.config.get("device_index", 0),
+                "ppm": self.config.get("ppm", 0),
             }
         }
         return status

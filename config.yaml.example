@@ -46,6 +46,11 @@ radio:
   # Default: 0 (first device)
   device_index: 0
 
+  # Frequency correction in parts per million (PPM)
+  # OPTIONAL: Compensates for your dongle's crystal oscillator error
+  # Default: 0 (no correction)
+  ppm: 0
+
 # ============================================================================
 # API KEYS AND CREDENTIALS
 # ============================================================================
