@@ -8,3 +8,4 @@ watchdog==6.0.0
 deepgram-sdk>=5.0.0
 gunicorn==23.0.0
 eventlet==0.37.0
+moonshine-voice>=0.0.52

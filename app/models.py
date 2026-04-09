@@ -109,6 +109,18 @@ def init_db():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_date ON transcripts (date)')
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS moonshine_transcripts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT UNIQUE NOT NULL,
+                transcript TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                date TEXT
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_moonshine_filename ON moonshine_transcripts (filename)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_moonshine_date ON moonshine_transcripts (date)')
+
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS restarts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -239,5 +251,57 @@ def search_transcripts_by_string(search_string):
             (f'%{search_string}%',)
         )
         return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def save_moonshine_transcript(filename, transcript):
+    """Save a Moonshine transcript for comparison."""
+    conn = get_db_connection()
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        date_str = _extract_date_from_filename(filename)
+        conn.execute('''
+            INSERT OR REPLACE INTO moonshine_transcripts (filename, transcript, timestamp, date)
+            VALUES (?, ?, ?, ?)
+        ''', (filename, transcript, timestamp, date_str))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_moonshine_transcript(filename):
+    """Get a Moonshine transcript by filename."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute('SELECT transcript FROM moonshine_transcripts WHERE filename = ?', (filename,))
+        result = cursor.fetchone()
+        return result['transcript'] if result else None
+    finally:
+        conn.close()
+
+
+def list_moonshine_transcripts(date=None):
+    """List Moonshine transcripts, optionally filtered by date."""
+    conn = get_db_connection()
+    try:
+        if date:
+            cursor = conn.execute(
+                'SELECT * FROM moonshine_transcripts WHERE date = ? ORDER BY timestamp DESC',
+                (date,)
+            )
+        else:
+            cursor = conn.execute('SELECT * FROM moonshine_transcripts ORDER BY timestamp DESC')
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def delete_moonshine_transcripts(date):
+    """Delete all Moonshine transcripts for a given date."""
+    conn = get_db_connection()
+    try:
+        conn.execute('DELETE FROM moonshine_transcripts WHERE date = ?', (date,))
+        conn.commit()
     finally:
         conn.close()

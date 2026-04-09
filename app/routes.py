@@ -9,7 +9,7 @@ from werkzeug.utils import safe_join
 from user_agents import parse
 
 import app.models as models
-from app.config import BRANDING, PRANK_PASSWORD
+from app.config import BRANDING, PRANK_PASSWORD, ADMIN_PASSWORD
 from app.services.radio_manager import get_radio_status
 from app.services.file_processor import inject_fake_message
 from app.utils import (
@@ -332,6 +332,109 @@ def setup_routes(app, record_folder: str):
             success=success,
             units=unit_map,
             prank_count=prank_count,
+        )
+
+    _ADMIN_COOKIE = "admin_auth"
+
+    @files_bp.route("/admin", methods=["GET", "POST"])
+    def admin():
+        """Admin page for comparing Deepgram vs Moonshine transcriptions side by side."""
+        error = None
+        success = None
+        comparison = None
+        selected_date = None
+        is_authed = request.cookies.get(_ADMIN_COOKIE) == ADMIN_PASSWORD
+
+        record_folder = app.config['RECORD_FOLDER']
+
+        if request.method == "POST":
+            action = request.form.get("action", "")
+
+            if action == "auth":
+                password = request.form.get("password", "")
+                if password == ADMIN_PASSWORD:
+                    resp = make_response(redirect(url_for("files.admin")))
+                    resp.set_cookie(_ADMIN_COOKIE, ADMIN_PASSWORD, max_age=60 * 60 * 24, httponly=True, samesite="Lax")
+                    return resp
+                error = "Wrong password"
+
+            elif action == "run_comparison" and is_authed:
+                selected_date = request.form.get("date", "").strip()
+                if not selected_date:
+                    error = "Please select a date"
+                else:
+                    # Run moonshine on all recordings for that date
+                    from app.services.moonshine_transcription import get_moonshine_transcription
+
+                    folder_path = os.path.join(record_folder, selected_date)
+                    if not os.path.isdir(folder_path):
+                        error = f"No recordings found for {selected_date}"
+                    else:
+                        wav_files = sorted([f for f in os.listdir(folder_path) if f.endswith(".wav")])
+                        if not wav_files:
+                            error = f"No WAV files found for {selected_date}"
+                        else:
+                            # Delete old moonshine transcripts for this date and re-run
+                            models.delete_moonshine_transcripts(selected_date)
+
+                            processed = 0
+                            for filename in wav_files:
+                                file_path = os.path.join(folder_path, filename)
+                                file_length = get_wav_length(file_path)
+                                if file_length < 0.5:
+                                    continue
+
+                                moonshine_text = get_moonshine_transcription(file_path)
+                                models.save_moonshine_transcript(file_path, moonshine_text)
+                                processed += 1
+
+                            success = f"Processed {processed} recordings with Moonshine for {selected_date}"
+
+        # Build comparison data if we have a date
+        if is_authed:
+            # Get available dates
+            date_dirs = []
+            if os.path.isdir(record_folder):
+                date_dirs = sorted(
+                    [d for d in os.listdir(record_folder) if os.path.isdir(os.path.join(record_folder, d))],
+                    reverse=True
+                )
+
+            # If date selected (via GET param or POST), load comparison
+            selected_date = selected_date or request.args.get("date", "")
+            if selected_date:
+                deepgram_transcripts = models.list_transcripts(selected_date)
+                moonshine_transcripts = models.list_moonshine_transcripts(selected_date)
+
+                dg_map = {os.path.basename(t['filename']): t['transcript'] for t in deepgram_transcripts}
+                ms_map = {os.path.basename(t['filename']): t['transcript'] for t in moonshine_transcripts}
+
+                all_files = sorted(set(list(dg_map.keys()) + list(ms_map.keys())))
+
+                comparison = []
+                for filename in all_files:
+                    formatted_time = parse_time_from_filename(filename)
+                    radio_uid = extract_radio_uid_from_filename(filename)
+                    unit_name = get_unit_info(radio_uid) if radio_uid else None
+                    comparison.append({
+                        'filename': filename,
+                        'time': formatted_time,
+                        'unit_name': unit_name,
+                        'deepgram': dg_map.get(filename, ''),
+                        'moonshine': ms_map.get(filename, ''),
+                    })
+        else:
+            date_dirs = []
+
+        return render_template(
+            "admin.html",
+            branding=BRANDING,
+            is_authed=is_authed,
+            error=error,
+            success=success,
+            date_dirs=date_dirs,
+            selected_date=selected_date or "",
+            comparison=comparison,
         )
 
     # Register blueprints

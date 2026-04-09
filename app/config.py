@@ -44,6 +44,9 @@ BRANDING = config.get("application", {}).get("branding", "Radio Bot")
 # Prank page password (optional, defaults to "gotcha")
 PRANK_PASSWORD = config.get("application", {}).get("prank_password", "gotcha")
 
+# Admin page password (optional, defaults to prank password)
+ADMIN_PASSWORD = config.get("application", {}).get("admin_password", PRANK_PASSWORD)
+
 
 # API credentials
 DEEPGRAM_API_KEY = config.get("apis", {}).get("deepgram_api_key")

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Admin - Transcription Comparison [{{ branding }}]</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-950 text-gray-100 font-mono min-h-screen">
+
+    {% if not is_authed %}
+    <!-- Password gate -->
+    <div class="flex items-center justify-center min-h-screen">
+      <div class="w-full max-w-xs">
+        <p class="text-gray-600 text-xs text-center mb-6 tracking-widest uppercase">admin access</p>
+        {% if error %}
+        <div class="bg-red-900 border border-red-700 text-red-300 px-4 py-2 rounded text-sm mb-4">{{ error }}</div>
+        {% endif %}
+        <form method="post" class="space-y-4">
+          <input type="hidden" name="action" value="auth" />
+          <input
+            type="password"
+            name="password"
+            placeholder="admin password"
+            autofocus
+            class="w-full bg-gray-900 border border-gray-700 text-gray-100 px-3 py-2 rounded text-sm focus:outline-none focus:border-indigo-500 placeholder-gray-600"
+          />
+          <button
+            type="submit"
+            class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm py-2 rounded transition"
+          >
+            Enter
+          </button>
+        </form>
+      </div>
+    </div>
+
+    {% else %}
+    <!-- Admin console -->
+    <div class="max-w-7xl mx-auto px-4 py-8">
+      <div class="mb-8">
+        <p class="text-indigo-400 text-xs tracking-widest uppercase mb-1">{{ branding }}</p>
+        <h1 class="text-2xl font-bold text-white">Transcription Comparison</h1>
+        <p class="text-gray-500 text-xs mt-1">Run Moonshine AI (Medium Streaming) against recordings and compare with Deepgram side by side.</p>
+      </div>
+
+      {% if error %}
+      <div class="bg-red-900 border border-red-700 text-red-300 px-4 py-2 rounded text-sm mb-6">{{ error }}</div>
+      {% endif %}
+
+      {% if success %}
+      <div class="bg-green-900 border border-green-700 text-green-300 px-4 py-3 rounded text-sm mb-6">
+        {{ success }}
+      </div>
+      {% endif %}
+
+      <!-- Date picker + run button -->
+      <form method="post" class="mb-8 flex items-end gap-4 flex-wrap" id="comparison-form">
+        <input type="hidden" name="action" value="run_comparison" />
+        <div>
+          <label class="block text-gray-400 text-xs uppercase tracking-wider mb-1">Select Date</label>
+          <select
+            name="date"
+            id="date-select"
+            class="bg-gray-900 border border-gray-700 text-gray-100 px-3 py-2 rounded text-sm focus:outline-none focus:border-indigo-500 min-w-[200px]"
+          >
+            <option value="">-- Pick a date --</option>
+            {% for d in date_dirs %}
+            <option value="{{ d }}" {{ 'selected' if d == selected_date else '' }}>{{ d }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button
+          type="submit"
+          id="run-btn"
+          class="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-6 py-2 rounded transition"
+        >
+          Run Moonshine
+        </button>
+        <a
+          id="view-link"
+          href="#"
+          class="text-indigo-400 hover:text-indigo-300 text-sm underline hidden"
+        >
+          View existing results
+        </a>
+      </form>
+
+      {% if comparison is not none and comparison|length > 0 %}
+      <!-- Results table -->
+      <div class="mb-4 flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-white">
+          Results for {{ selected_date }}
+          <span class="text-gray-500 text-sm font-normal">({{ comparison|length }} recordings)</span>
+        </h2>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-gray-700">
+              <th class="text-left text-gray-400 text-xs uppercase tracking-wider py-3 px-3 w-28">Time</th>
+              <th class="text-left text-gray-400 text-xs uppercase tracking-wider py-3 px-3 w-32">Unit</th>
+              <th class="text-left text-xs uppercase tracking-wider py-3 px-3 w-1/2">
+                <span class="text-blue-400">Deepgram</span>
+              </th>
+              <th class="text-left text-xs uppercase tracking-wider py-3 px-3 w-1/2">
+                <span class="text-amber-400">Moonshine</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in comparison %}
+            <tr class="border-b border-gray-800 hover:bg-gray-900/50">
+              <td class="py-2 px-3 text-gray-400 text-xs align-top whitespace-nowrap">{{ row.time }}</td>
+              <td class="py-2 px-3 text-gray-400 text-xs align-top">{{ row.unit_name or '' }}</td>
+              <td class="py-2 px-3 align-top">
+                {% if row.deepgram %}
+                <span class="text-gray-200">{{ row.deepgram }}</span>
+                {% else %}
+                <span class="text-gray-600 italic">no transcript</span>
+                {% endif %}
+              </td>
+              <td class="py-2 px-3 align-top">
+                {% if row.moonshine %}
+                <span class="text-gray-200">{{ row.moonshine }}</span>
+                {% else %}
+                <span class="text-gray-600 italic">no transcript</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% elif comparison is not none and comparison|length == 0 %}
+      <p class="text-gray-500 text-sm">No transcripts found for {{ selected_date }}.</p>
+      {% endif %}
+    </div>
+
+    <script>
+      const dateSelect = document.getElementById('date-select');
+      const viewLink = document.getElementById('view-link');
+      const form = document.getElementById('comparison-form');
+      const runBtn = document.getElementById('run-btn');
+
+      function updateViewLink() {
+        const d = dateSelect.value;
+        if (d) {
+          viewLink.href = '/admin?date=' + d;
+          viewLink.classList.remove('hidden');
+        } else {
+          viewLink.classList.add('hidden');
+        }
+      }
+
+      dateSelect.addEventListener('change', updateViewLink);
+      updateViewLink();
+
+      form.addEventListener('submit', function() {
+        runBtn.disabled = true;
+        runBtn.textContent = 'Running Moonshine...';
+        runBtn.classList.add('opacity-50', 'cursor-wait');
+      });
+    </script>
+    {% endif %}
+
+  </body>
+</html>
