@@ -84,9 +84,10 @@ def setup_routes(app, record_folder: str):
         recent_days = []
         for i in range(10):
             d = date.today() - timedelta(days=i)
+            key = d.strftime("%Y%m%d")
             recent_days.append({
-                'key': d.strftime("%Y%m%d"),
-                'label': 'Today' if i == 0 else 'Yesterday' if i == 1 else d.strftime("%A, %b %-d"),
+                'key': key,
+                'label': format_date_display(key),
             })
 
         radio_status = get_radio_status()
