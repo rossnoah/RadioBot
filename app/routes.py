@@ -81,11 +81,16 @@ def setup_routes(app, record_folder: str):
                     'month': month,
                 }
 
-        today = date.today().strftime("%Y%m%d")
-        yesterday = (date.today() - timedelta(days=1)).strftime("%Y%m%d")
+        recent_days = []
+        for i in range(10):
+            d = date.today() - timedelta(days=i)
+            recent_days.append({
+                'key': d.strftime("%Y%m%d"),
+                'label': 'Today' if i == 0 else 'Yesterday' if i == 1 else d.strftime("%A, %b %-d"),
+            })
 
         radio_status = get_radio_status()
-        return render_template("index.html", months=months, date_set=date_set, today=today, yesterday=yesterday, branding=BRANDING, radio_status=radio_status)
+        return render_template("index.html", months=months, date_set=date_set, recent_days=recent_days, branding=BRANDING, radio_status=radio_status)
 
     @files_bp.route("/files/<date>")
     @require_password
