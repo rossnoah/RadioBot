@@ -74,6 +74,18 @@
           </span>
         </div>
         {% endif %}
+        <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Transcription</span>
+          {% if transcription_status.engine == 'deepgram' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+              Deepgram
+            </span>
+          {% else %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300">
+              Moonshine (fallback)
+            </span>
+          {% endif %}
+        </div>
       </div>
 
       <!-- Recording Dates Card -->

@@ -1,17 +1,17 @@
 """Flask routes and blueprints."""
 import os
-import json
 import calendar
 from collections import OrderedDict
 from datetime import date, timedelta
 from functools import wraps
-from flask import Blueprint, render_template, request, abort, send_from_directory, redirect, url_for, make_response, jsonify
+from flask import Blueprint, render_template, request, abort, send_from_directory, redirect, url_for, make_response
 from werkzeug.utils import safe_join
 from user_agents import parse
 
 import app.models as models
-from app.config import BRANDING, PRANK_PASSWORD, ADMIN_PASSWORD
+from app.config import BRANDING, PRANK_PASSWORD
 from app.services.radio_manager import get_radio_status
+from app.services.transcription import get_transcription_status
 from app.services.file_processor import inject_fake_message
 from app.utils import (
     require_password,
@@ -114,7 +114,8 @@ def setup_routes(app, record_folder: str):
             })
 
         radio_status = get_radio_status()
-        return render_template("index.html", months=months, date_set=date_set, recent_days=recent_days, branding=BRANDING, radio_status=radio_status)
+        transcription_status = get_transcription_status()
+        return render_template("index.html", months=months, date_set=date_set, recent_days=recent_days, branding=BRANDING, radio_status=radio_status, transcription_status=transcription_status)
 
     @files_bp.route("/files/<date>")
     @require_password
@@ -226,10 +227,12 @@ def setup_routes(app, record_folder: str):
 
         restarts = models.get_restarts()
         radio_status = get_radio_status()
+        transcription_status = get_transcription_status()
         return render_template(
             "status.html",
             branding=BRANDING,
             radio_status=radio_status,
+            transcription_status=transcription_status,
             restarts=restarts,
             storage_used=storage_used,
             total_recordings=total_recordings,
@@ -334,127 +337,6 @@ def setup_routes(app, record_folder: str):
             units=unit_map,
             prank_count=prank_count,
         )
-
-    _ADMIN_COOKIE = "admin_auth"
-
-    @files_bp.route("/admin", methods=["GET", "POST"])
-    def admin():
-        """Admin page for comparing Deepgram vs Moonshine transcriptions side by side."""
-        error = None
-        success = None
-        comparison = None
-        selected_date = None
-        is_authed = request.cookies.get(_ADMIN_COOKIE) == ADMIN_PASSWORD
-
-        record_folder = app.config['RECORD_FOLDER']
-
-        if request.method == "POST":
-            action = request.form.get("action", "")
-
-            if action == "auth":
-                password = request.form.get("password", "")
-                if password == ADMIN_PASSWORD:
-                    resp = make_response(redirect(url_for("files.admin")))
-                    resp.set_cookie(_ADMIN_COOKIE, ADMIN_PASSWORD, max_age=60 * 60 * 24, httponly=True, samesite="Lax")
-                    return resp
-                error = "Wrong password"
-
-        # Build comparison data if we have a date
-        if is_authed:
-            # Get available dates
-            date_dirs = []
-            if os.path.isdir(record_folder):
-                date_dirs = sorted(
-                    [d for d in os.listdir(record_folder) if os.path.isdir(os.path.join(record_folder, d))],
-                    reverse=True
-                )
-
-            # If date selected (via GET param or POST), load comparison
-            selected_date = selected_date or request.args.get("date", "")
-            if selected_date:
-                deepgram_transcripts = models.list_transcripts(selected_date)
-                moonshine_transcripts = models.list_moonshine_transcripts(selected_date)
-
-                dg_map = {os.path.basename(t['filename']): t['transcript'] for t in deepgram_transcripts}
-                ms_map = {os.path.basename(t['filename']): t['transcript'] for t in moonshine_transcripts}
-
-                all_files = sorted(set(list(dg_map.keys()) + list(ms_map.keys())))
-
-                comparison = []
-                for filename in all_files:
-                    formatted_time = parse_time_from_filename(filename)
-                    radio_uid = extract_radio_uid_from_filename(filename)
-                    unit_name = get_unit_info(radio_uid) if radio_uid else None
-                    comparison.append({
-                        'filename': filename,
-                        'time': formatted_time,
-                        'unit_name': unit_name,
-                        'deepgram': dg_map.get(filename, ''),
-                        'moonshine': ms_map.get(filename, ''),
-                    })
-        else:
-            date_dirs = []
-
-        return render_template(
-            "admin.html",
-            branding=BRANDING,
-            is_authed=is_authed,
-            error=error,
-            success=success,
-            date_dirs=date_dirs,
-            selected_date=selected_date or "",
-            comparison=comparison,
-        )
-
-    @files_bp.route("/admin/files/<date>")
-    def admin_list_files(date):
-        """Return JSON list of WAV files for a date that need Moonshine transcription."""
-        if request.cookies.get(_ADMIN_COOKIE) != ADMIN_PASSWORD:
-            return jsonify({"error": "unauthorized"}), 401
-
-        record_folder = app.config['RECORD_FOLDER']
-        folder_path = os.path.join(record_folder, date)
-        if not os.path.isdir(folder_path):
-            return jsonify({"error": "no recordings for this date"}), 404
-
-        files = []
-        for filename in sorted(os.listdir(folder_path)):
-            if not filename.endswith(".wav"):
-                continue
-            file_path = os.path.join(folder_path, filename)
-            file_length = get_wav_length(file_path)
-            if file_length < 0.5:
-                continue
-            files.append(filename)
-
-        return jsonify({"files": files, "total": len(files)})
-
-    @files_bp.route("/admin/transcribe", methods=["POST"])
-    def admin_transcribe_one():
-        """Transcribe a single file with Moonshine and return the result."""
-        if request.cookies.get(_ADMIN_COOKIE) != ADMIN_PASSWORD:
-            return jsonify({"error": "unauthorized"}), 401
-
-        data = request.get_json()
-        date_str = data.get("date", "")
-        filename = data.get("filename", "")
-
-        if not date_str or not filename:
-            return jsonify({"error": "date and filename required"}), 400
-        if "/" in filename or "\\" in filename:
-            return jsonify({"error": "invalid filename"}), 400
-
-        record_folder = app.config['RECORD_FOLDER']
-        file_path = os.path.join(record_folder, date_str, filename)
-
-        if not os.path.isfile(file_path):
-            return jsonify({"error": "file not found"}), 404
-
-        from app.services.moonshine_transcription import get_moonshine_transcription
-        moonshine_text = get_moonshine_transcription(file_path)
-        models.save_moonshine_transcript(file_path, moonshine_text)
-
-        return jsonify({"filename": filename, "transcript": moonshine_text})
 
     # Register blueprints
     app.register_blueprint(files_bp, url_prefix='')

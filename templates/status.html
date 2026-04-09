@@ -71,6 +71,25 @@
           </span>
         </div>
         {% endif %}
+        <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Transcription</span>
+          {% if transcription_status.engine == 'deepgram' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+              <span class="w-2 h-2 rounded-full bg-green-500"></span>
+              Deepgram
+            </span>
+          {% else %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300">
+              <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+              Moonshine (fallback)
+            </span>
+          {% endif %}
+        </div>
+        {% if transcription_status.engine == 'moonshine' %}
+        <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          Fallback since {{ transcription_status.fallback_since }}. Retries Deepgram every 5 minutes.
+        </div>
+        {% endif %}
       </div>
 
       <!-- Recordings Stats Card -->
