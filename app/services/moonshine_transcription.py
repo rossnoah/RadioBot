@@ -16,11 +16,12 @@ def _get_transcriber():
     if _transcriber is not None:
         return _transcriber
 
-    from moonshine_voice import Transcriber, download_model
+    from moonshine_voice import get_model_for_language, ModelArch
+    from moonshine_voice.transcriber import Transcriber
 
     if _model_path is None:
         logger.info("Downloading Moonshine Medium Streaming model for English...")
-        _model_path, _model_arch = download_model(language="en", model_arch=None)
+        _model_path, _model_arch = get_model_for_language("en", ModelArch.MEDIUM_STREAMING)
         logger.info(f"Moonshine model ready at {_model_path} (arch={_model_arch})")
 
     _transcriber = Transcriber(model_path=_model_path, model_arch=_model_arch)
