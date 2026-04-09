@@ -31,8 +31,6 @@ def _extract_date_from_filename(filename):
 
 def init_db():
     """Initialize the database with required tables."""
-    from app.utils import get_wav_length
-
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -61,27 +59,43 @@ def init_db():
         try:
             cursor.execute('ALTER TABLE transcripts ADD COLUMN duration REAL')
             conn.commit()
-            # Backfill duration for existing records
-            logger.info("Backfilling duration for existing transcripts...")
-            rows = cursor.execute('SELECT id, filename FROM transcripts WHERE duration IS NULL').fetchall()
-            updated = 0
-            for row in rows:
-                duration = get_wav_length(row['filename'])
-                if duration > 0:
-                    cursor.execute('UPDATE transcripts SET duration = ? WHERE id = ?', (duration, row['id']))
-                    updated += 1
-            conn.commit()
-            logger.info(f"Backfilled duration for {updated}/{len(rows)} transcripts")
         except Exception as e:
             if "duplicate column" not in str(e).lower():
                 logger.error(f"Duration migration error: {e}")
+
+        # Backfill duration for existing records (runs until all are filled)
+        null_count = cursor.execute('SELECT COUNT(*) FROM transcripts WHERE duration IS NULL').fetchone()[0]
+        if null_count > 0:
+            logger.info(f"Backfilling duration for {null_count} transcripts...")
+            rows = cursor.execute('SELECT id, filename FROM transcripts WHERE duration IS NULL').fetchall()
+            updated = 0
+            for row in rows:
+                try:
+                    import wave
+                    with wave.open(row['filename'], 'rb') as wf:
+                        duration = wf.getnframes() / float(wf.getframerate())
+                except Exception:
+                    duration = 0.0
+                cursor.execute('UPDATE transcripts SET duration = ? WHERE id = ?', (duration, row['id']))
+                updated += 1
+                if updated % 1000 == 0:
+                    conn.commit()
+                    logger.info(f"  ...backfilled {updated}/{len(rows)}")
+            conn.commit()
+            logger.info(f"Backfilled duration for {updated} transcripts")
 
         # Migration: add date column
         try:
             cursor.execute('ALTER TABLE transcripts ADD COLUMN date TEXT')
             conn.commit()
-            # Backfill date for existing records
-            logger.info("Backfilling date for existing transcripts...")
+        except Exception as e:
+            if "duplicate column" not in str(e).lower():
+                logger.error(f"Date migration error: {e}")
+
+        # Backfill date for existing records
+        null_date_count = cursor.execute('SELECT COUNT(*) FROM transcripts WHERE date IS NULL').fetchone()[0]
+        if null_date_count > 0:
+            logger.info(f"Backfilling date for {null_date_count} transcripts...")
             rows = cursor.execute('SELECT id, filename FROM transcripts WHERE date IS NULL').fetchall()
             updated = 0
             for row in rows:
@@ -90,10 +104,7 @@ def init_db():
                     cursor.execute('UPDATE transcripts SET date = ? WHERE id = ?', (date_str, row['id']))
                     updated += 1
             conn.commit()
-            logger.info(f"Backfilled date for {updated}/{len(rows)} transcripts")
-        except Exception as e:
-            if "duplicate column" not in str(e).lower():
-                logger.error(f"Date migration error: {e}")
+            logger.info(f"Backfilled date for {updated} transcripts")
 
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_date ON transcripts (date)')
 
