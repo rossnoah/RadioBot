@@ -61,7 +61,7 @@
           id="toggle-audio"
           onclick="
             var showing = this.textContent === 'Show Audio';
-            document.querySelectorAll('.audio-player-wrapper').forEach(function(el) { el.classList.toggle('hidden'); });
+            document.querySelectorAll('.audio-player-wrapper').forEach(function(el) { if (showing) { el.classList.remove('hidden'); el.classList.add('block'); } else { el.classList.add('hidden'); el.classList.remove('block'); } });
             document.querySelectorAll('.file-entry').forEach(function(el) { if (showing) { el.classList.remove('items-center'); el.classList.add('flex-col'); } else { el.classList.remove('flex-col'); el.classList.add('items-center'); } });
             this.textContent = showing ? 'Hide Audio' : 'Show Audio';
           "
