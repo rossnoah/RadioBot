@@ -17,8 +17,22 @@ def get_db_connection():
     return conn
 
 
+def _extract_date_from_filename(filename):
+    """Extract YYYYMMDD date string from a transcript filename path."""
+    # Filename paths look like: files/20260408/20260408_123456_....wav
+    # The date folder is the second-to-last path component
+    parts = filename.replace("\\", "/").split("/")
+    if len(parts) >= 2:
+        date_part = parts[-2]
+        if len(date_part) == 8 and date_part.isdigit():
+            return date_part
+    return None
+
+
 def init_db():
     """Initialize the database with required tables."""
+    from app.utils import get_wav_length
+
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -37,11 +51,51 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_filename ON transcripts (filename)
         ''')
 
-        # Migration: add is_fake column if it doesn't exist yet
+        # Migration: add is_fake column
         try:
             cursor.execute('ALTER TABLE transcripts ADD COLUMN is_fake INTEGER NOT NULL DEFAULT 0')
         except Exception:
-            pass  # Column already exists
+            pass
+
+        # Migration: add duration column
+        try:
+            cursor.execute('ALTER TABLE transcripts ADD COLUMN duration REAL')
+            conn.commit()
+            # Backfill duration for existing records
+            logger.info("Backfilling duration for existing transcripts...")
+            rows = cursor.execute('SELECT id, filename FROM transcripts WHERE duration IS NULL').fetchall()
+            updated = 0
+            for row in rows:
+                duration = get_wav_length(row['filename'])
+                if duration > 0:
+                    cursor.execute('UPDATE transcripts SET duration = ? WHERE id = ?', (duration, row['id']))
+                    updated += 1
+            conn.commit()
+            logger.info(f"Backfilled duration for {updated}/{len(rows)} transcripts")
+        except Exception as e:
+            if "duplicate column" not in str(e).lower():
+                logger.error(f"Duration migration error: {e}")
+
+        # Migration: add date column
+        try:
+            cursor.execute('ALTER TABLE transcripts ADD COLUMN date TEXT')
+            conn.commit()
+            # Backfill date for existing records
+            logger.info("Backfilling date for existing transcripts...")
+            rows = cursor.execute('SELECT id, filename FROM transcripts WHERE date IS NULL').fetchall()
+            updated = 0
+            for row in rows:
+                date_str = _extract_date_from_filename(row['filename'])
+                if date_str:
+                    cursor.execute('UPDATE transcripts SET date = ? WHERE id = ?', (date_str, row['id']))
+                    updated += 1
+            conn.commit()
+            logger.info(f"Backfilled date for {updated}/{len(rows)} transcripts")
+        except Exception as e:
+            if "duplicate column" not in str(e).lower():
+                logger.error(f"Date migration error: {e}")
+
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_date ON transcripts (date)')
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS restarts (
@@ -84,15 +138,16 @@ def get_restarts(limit=100):
         conn.close()
 
 
-def save_transcript(filename, transcript, api_response, is_fake: bool = False):
+def save_transcript(filename, transcript, api_response, is_fake: bool = False, duration: float = None):
     """Save or update a transcript in the database."""
     conn = get_db_connection()
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        date_str = _extract_date_from_filename(filename)
         conn.execute('''
-            INSERT OR REPLACE INTO transcripts (filename, transcript, response, timestamp, is_fake)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (filename, transcript, api_response, timestamp, 1 if is_fake else 0))
+            INSERT OR REPLACE INTO transcripts (filename, transcript, response, timestamp, is_fake, duration, date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (filename, transcript, api_response, timestamp, 1 if is_fake else 0, duration, date_str))
         conn.commit()
     finally:
         conn.close()
@@ -138,8 +193,8 @@ def list_transcripts(date=None):
     try:
         if date:
             cursor = conn.execute(
-                'SELECT * FROM transcripts WHERE filename LIKE ? ORDER BY timestamp DESC',
-                (f'%{date}%',)
+                'SELECT * FROM transcripts WHERE date = ? ORDER BY timestamp DESC',
+                (date,)
             )
         else:
             cursor = conn.execute('SELECT * FROM transcripts ORDER BY timestamp DESC')
@@ -154,8 +209,8 @@ def list_transcripts_filenames(date=None):
     try:
         if date:
             cursor = conn.execute(
-                'SELECT filename FROM transcripts WHERE filename LIKE ? ORDER BY timestamp DESC',
-                (f'%{date}%',)
+                'SELECT filename FROM transcripts WHERE date = ? ORDER BY timestamp DESC',
+                (date,)
             )
         else:
             cursor = conn.execute('SELECT filename FROM transcripts ORDER BY timestamp DESC')

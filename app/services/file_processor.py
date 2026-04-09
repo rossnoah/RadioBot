@@ -107,8 +107,8 @@ def process_file(file_path: str, emit_event: bool = True) -> bool:
     except Exception:
         pass  # Don't let status tracking break file processing
 
-    # Step 1: Transcribe the file
-    save_transcription(file_path)
+    # Step 1: Transcribe the file (pass duration for DB caching)
+    save_transcription(file_path, duration=file_data['file_length'])
 
     # Step 2: Get the transcript from DB
     transcript = get_transcript(file_path)

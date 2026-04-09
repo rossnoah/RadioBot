@@ -37,14 +37,14 @@ def get_transcription(file_path):
     return [response, transcript]
 
 
-def save_transcription(file_path):
+def save_transcription(file_path, duration=None):
     """Transcribe a file and save the result, with retries on failure."""
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             [response, transcript] = get_transcription(file_path)
             json_response = response.model_dump_json()
-            save_transcript(file_path, transcript, json_response)
+            save_transcript(file_path, transcript, json_response, duration=duration)
             logger.info(f"Transcribed: {file_path}")
             return
         except Exception as e:

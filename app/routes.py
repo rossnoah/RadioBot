@@ -108,7 +108,7 @@ def setup_routes(app, record_folder: str):
 
         transcripts = models.list_transcripts(date)
         transcript_map = {
-            os.path.basename(t['filename']): t['transcript']
+            os.path.basename(t['filename']): t
             for t in transcripts
         }
 
@@ -117,14 +117,19 @@ def setup_routes(app, record_folder: str):
             if not filename.endswith(".wav"):
                 continue
 
-            file_path = os.path.join(folder_path, filename)
-            file_length = get_wav_length(file_path)
+            # Use cached duration from DB, fall back to reading the file
+            db_record = transcript_map.get(filename)
+            if db_record and db_record.get('duration'):
+                file_length = db_record['duration']
+            else:
+                file_path = os.path.join(folder_path, filename)
+                file_length = get_wav_length(file_path)
 
             if file_length < 0.5:
                 continue
 
             formatted_time = parse_time_from_filename(filename)
-            transcript = transcript_map.get(filename)
+            transcript = db_record['transcript'] if db_record else None
             radio_uid = extract_radio_uid_from_filename(filename)
             unit_name = get_unit_info(radio_uid) if radio_uid else None
 
