@@ -168,7 +168,9 @@ def setup_routes(app, record_folder: str):
         if not os.path.isfile(safe_path):
             abort(404, "File not found")
 
-        return send_from_directory(folder_path, filename)
+        response = make_response(send_from_directory(folder_path, filename))
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return response
 
     @files_bp.route("/status")
     @require_password
