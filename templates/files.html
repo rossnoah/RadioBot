@@ -6,7 +6,6 @@
     <title>Transcript for {{ formatted_date }} [{{ branding }}]</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
-    <script type="module" src="https://cdn.jsdelivr.net/npm/@videojs/html/cdn/audio.js"></script>
 
     <style>
       /* Flash animation for new items */
@@ -70,15 +69,14 @@
           </span>
           <!-- Audio player with lazy loading -->
           {% if not is_mobile %}
-          <div class="flex-shrink-0 mr-8 w-72">
-            <audio-player>
-              <audio-skin>
-                <audio
-                  class="lazy-load-audio"
-                  data-src="/play/{{ date }}/{{ file }}"
-                ></audio>
-              </audio-skin>
-            </audio-player>
+          <div class="flex-shrink-0 mr-8">
+            <audio
+              controls
+              class="w-72 lazy-load-audio"
+              data-src="/play/{{ date }}/{{ file }}"
+            >
+              Your browser does not support the audio element.
+            </audio>
           </div>
           {% endif %} {% if transcript %}
           <span class="font-mono flex-1">{{ transcript }}</span>
@@ -195,18 +193,15 @@
         let audioDiv;
         if (!isMobile) {
           audioDiv = document.createElement("div");
-          audioDiv.classList.add("flex-shrink-0", "mr-8", "w-72");
-          const playerEl = document.createElement("audio-player");
-          const skinEl = document.createElement("audio-skin");
+          audioDiv.classList.add("flex-shrink-0", "mr-8");
           const audioElement = document.createElement("audio");
-          audioElement.classList.add("lazy-load-audio");
+          audioElement.controls = true;
+          audioElement.classList.add("w-72");
           audioElement.setAttribute(
             "data-src",
             `/play/{{ date }}/${data.filename}`
           );
-          skinEl.appendChild(audioElement);
-          playerEl.appendChild(skinEl);
-          audioDiv.appendChild(playerEl);
+          audioDiv.appendChild(audioElement);
         }
 
         const transcriptSpan = document.createElement("span");
