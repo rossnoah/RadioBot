@@ -1,10 +1,11 @@
 """Flask routes and blueprints."""
 import os
+import json
 import calendar
 from collections import OrderedDict
 from datetime import date, timedelta
 from functools import wraps
-from flask import Blueprint, render_template, request, abort, send_from_directory, redirect, url_for, make_response
+from flask import Blueprint, render_template, request, abort, send_from_directory, redirect, url_for, make_response, jsonify
 from werkzeug.utils import safe_join
 from user_agents import parse
 
@@ -358,38 +359,6 @@ def setup_routes(app, record_folder: str):
                     return resp
                 error = "Wrong password"
 
-            elif action == "run_comparison" and is_authed:
-                selected_date = request.form.get("date", "").strip()
-                if not selected_date:
-                    error = "Please select a date"
-                else:
-                    # Run moonshine on all recordings for that date
-                    from app.services.moonshine_transcription import get_moonshine_transcription
-
-                    folder_path = os.path.join(record_folder, selected_date)
-                    if not os.path.isdir(folder_path):
-                        error = f"No recordings found for {selected_date}"
-                    else:
-                        wav_files = sorted([f for f in os.listdir(folder_path) if f.endswith(".wav")])
-                        if not wav_files:
-                            error = f"No WAV files found for {selected_date}"
-                        else:
-                            # Delete old moonshine transcripts for this date and re-run
-                            models.delete_moonshine_transcripts(selected_date)
-
-                            processed = 0
-                            for filename in wav_files:
-                                file_path = os.path.join(folder_path, filename)
-                                file_length = get_wav_length(file_path)
-                                if file_length < 0.5:
-                                    continue
-
-                                moonshine_text = get_moonshine_transcription(file_path)
-                                models.save_moonshine_transcript(file_path, moonshine_text)
-                                processed += 1
-
-                            success = f"Processed {processed} recordings with Moonshine for {selected_date}"
-
         # Build comparison data if we have a date
         if is_authed:
             # Get available dates
@@ -436,6 +405,56 @@ def setup_routes(app, record_folder: str):
             selected_date=selected_date or "",
             comparison=comparison,
         )
+
+    @files_bp.route("/admin/files/<date>")
+    def admin_list_files(date):
+        """Return JSON list of WAV files for a date that need Moonshine transcription."""
+        if request.cookies.get(_ADMIN_COOKIE) != ADMIN_PASSWORD:
+            return jsonify({"error": "unauthorized"}), 401
+
+        record_folder = app.config['RECORD_FOLDER']
+        folder_path = os.path.join(record_folder, date)
+        if not os.path.isdir(folder_path):
+            return jsonify({"error": "no recordings for this date"}), 404
+
+        files = []
+        for filename in sorted(os.listdir(folder_path)):
+            if not filename.endswith(".wav"):
+                continue
+            file_path = os.path.join(folder_path, filename)
+            file_length = get_wav_length(file_path)
+            if file_length < 0.5:
+                continue
+            files.append(filename)
+
+        return jsonify({"files": files, "total": len(files)})
+
+    @files_bp.route("/admin/transcribe", methods=["POST"])
+    def admin_transcribe_one():
+        """Transcribe a single file with Moonshine and return the result."""
+        if request.cookies.get(_ADMIN_COOKIE) != ADMIN_PASSWORD:
+            return jsonify({"error": "unauthorized"}), 401
+
+        data = request.get_json()
+        date_str = data.get("date", "")
+        filename = data.get("filename", "")
+
+        if not date_str or not filename:
+            return jsonify({"error": "date and filename required"}), 400
+        if "/" in filename or "\\" in filename:
+            return jsonify({"error": "invalid filename"}), 400
+
+        record_folder = app.config['RECORD_FOLDER']
+        file_path = os.path.join(record_folder, date_str, filename)
+
+        if not os.path.isfile(file_path):
+            return jsonify({"error": "file not found"}), 404
+
+        from app.services.moonshine_transcription import get_moonshine_transcription
+        moonshine_text = get_moonshine_transcription(file_path)
+        models.save_moonshine_transcript(file_path, moonshine_text)
+
+        return jsonify({"filename": filename, "transcript": moonshine_text})
 
     # Register blueprints
     app.register_blueprint(files_bp, url_prefix='')
