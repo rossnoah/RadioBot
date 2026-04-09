@@ -55,6 +55,13 @@
           Back to Date List
         </a>
       </div>
+      <button
+        id="toggle-audio"
+        onclick="document.querySelectorAll('.audio-player-wrapper').forEach(el => el.classList.toggle('hidden')); this.textContent = this.textContent === 'Show Audio Players' ? 'Hide Audio Players' : 'Show Audio Players';"
+        class="md:hidden mb-3 w-full py-2 px-4 rounded-lg text-sm font-semibold bg-indigo-50 dark:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500 transition-colors"
+      >
+        Show Audio Players
+      </button>
       <ul
         id="file-list"
         class="space-y-0.5 bg-white dark:bg-gray-800 p-4 rounded"
@@ -67,9 +74,8 @@
             <br />
             <span>{{unit_name}}</span>
           </span>
-          <!-- Audio player with lazy loading -->
-          {% if not is_mobile %}
-          <div class="flex-shrink-0 mr-8">
+          <!-- Audio player with lazy loading (hidden on mobile by default) -->
+          <div class="audio-player-wrapper flex-shrink-0 mr-8 hidden md:block">
             <audio
               controls
               class="w-72 lazy-load-audio"
@@ -78,7 +84,7 @@
               Your browser does not support the audio element.
             </audio>
           </div>
-          {% endif %} {% if transcript %}
+          {% if transcript %}
           <span class="font-mono flex-1">{{ transcript }}</span>
           {% else %}
           <span class="text-gray-400 dark:text-gray-500 italic flex-1"
@@ -91,13 +97,6 @@
     </div>
 
     <script>
-      const isMobile = "{{ is_mobile }}" == "True";
-      console.log("isMobile", isMobile);
-
-      if (!isMobile) {
-        console.log("Not mobile");
-      }
-
       // Lazy load audio files using Intersection Observer
       document.addEventListener("DOMContentLoaded", function () {
         const lazyLoadAudioElements =
@@ -190,19 +189,16 @@
           data.unit_name || "[No unit name]"
         }</span>`;
 
-        let audioDiv;
-        if (!isMobile) {
-          audioDiv = document.createElement("div");
-          audioDiv.classList.add("flex-shrink-0", "mr-8");
-          const audioElement = document.createElement("audio");
-          audioElement.controls = true;
-          audioElement.classList.add("w-72");
-          audioElement.setAttribute(
-            "data-src",
-            `/play/{{ date }}/${data.filename}`
-          );
-          audioDiv.appendChild(audioElement);
-        }
+        const audioDiv = document.createElement("div");
+        audioDiv.classList.add("audio-player-wrapper", "flex-shrink-0", "mr-8", "hidden", "md:block");
+        const audioElement = document.createElement("audio");
+        audioElement.controls = true;
+        audioElement.classList.add("w-72", "lazy-load-audio");
+        audioElement.setAttribute(
+          "data-src",
+          `/play/{{ date }}/${data.filename}`
+        );
+        audioDiv.appendChild(audioElement);
 
         const transcriptSpan = document.createElement("span");
         transcriptSpan.classList.add("flex-1");
@@ -220,33 +216,31 @@
 
         // Append the elements to the list item
         listItem.appendChild(timeSpan);
-        if (!isMobile) listItem.appendChild(audioDiv); // Append audioDiv only if not mobile
+        listItem.appendChild(audioDiv);
         listItem.appendChild(transcriptSpan);
 
         // Insert the new file at the top of the list
         fileList.insertBefore(listItem, fileList.firstChild);
 
-        if (!isMobile) {
-          const lazyAudioObserver = new IntersectionObserver(
-            (entries, observer) => {
-              entries.forEach((entry) => {
-                if (entry.isIntersecting) {
-                  const audioElement = entry.target;
-                  const src = audioElement.getAttribute("data-src");
-                  if (src) {
-                    const sourceElement = document.createElement("source");
-                    sourceElement.src = src;
-                    sourceElement.type = "audio/wav";
-                    audioElement.appendChild(sourceElement);
-                    audioElement.load();
-                    observer.unobserve(audioElement);
-                  }
+        const lazyAudioObserver = new IntersectionObserver(
+          (entries, observer) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                const audioEl = entry.target;
+                const src = audioEl.getAttribute("data-src");
+                if (src) {
+                  const sourceElement = document.createElement("source");
+                  sourceElement.src = src;
+                  sourceElement.type = "audio/wav";
+                  audioEl.appendChild(sourceElement);
+                  audioEl.load();
+                  observer.unobserve(audioEl);
                 }
-              });
-            }
-          );
-          lazyAudioObserver.observe(audioElement);
-        }
+              }
+            });
+          }
+        );
+        lazyAudioObserver.observe(audioElement);
 
         // Remove the 'flash' class after the animation ends
         setTimeout(() => {
