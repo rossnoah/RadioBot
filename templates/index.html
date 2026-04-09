@@ -81,9 +81,9 @@
         <h1 class="text-2xl font-bold mb-4 text-center text-indigo-600 dark:text-indigo-400">
           Recordings
         </h1>
-        <div class="flex gap-3 mb-4">
+        <div class="flex flex-col gap-2 mb-4">
           <a href="/files/{{ today }}"
-             class="flex-1 text-center py-2.5 rounded-lg font-semibold text-sm transition-colors
+             class="block w-full text-center py-2.5 rounded-lg font-semibold text-sm transition-colors
                {% if today in date_set %}
                  bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400
                {% else %}
@@ -92,7 +92,7 @@
             Today
           </a>
           <a href="/files/{{ yesterday }}"
-             class="flex-1 text-center py-2.5 rounded-lg font-semibold text-sm transition-colors
+             class="block w-full text-center py-2.5 rounded-lg font-semibold text-sm transition-colors
                {% if yesterday in date_set %}
                  bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400
                {% else %}
