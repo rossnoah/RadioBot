@@ -10,6 +10,9 @@ from app.config import get_config
 import app.models as models
 
 PID_FILE = "dsd-fme.pid"
+LOG_FILE = "dsd-fme.jsonl"
+LOG_MAX_SIZE = 100 * 1024 * 1024  # 100MB max before rotation
+LOG_BACKUP_COUNT = 2  # Keep 2 old log files
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +155,7 @@ class RadioManager:
             logger.info(f"Starting radio process: {' '.join(command)}")
 
             # Open log file for dsd-fme stderr output (contains main output)
-            log_file = open("dsd-fme.jsonl", "a")
+            log_file = open(LOG_FILE, "a")
 
             # Start the process in its own process group so we can kill it
             # and all its children cleanly on shutdown
@@ -327,13 +330,56 @@ class RadioManager:
         except Exception as e:
             logger.critical(f"Failed to reboot: {e}. Manual intervention required!")
 
+    def _rotate_log_if_needed(self):
+        """Rotate the dsd-fme log file if it exceeds the size limit."""
+        try:
+            if not os.path.exists(LOG_FILE):
+                return
+            size = os.path.getsize(LOG_FILE)
+            if size < LOG_MAX_SIZE:
+                return
+
+            logger.info(f"Rotating {LOG_FILE} ({size / 1024 / 1024:.0f}MB exceeds {LOG_MAX_SIZE / 1024 / 1024:.0f}MB limit)")
+
+            # Shift old backups: .2 -> delete, .1 -> .2, current -> .1
+            for i in range(LOG_BACKUP_COUNT, 0, -1):
+                src = f"{LOG_FILE}.{i}" if i > 1 else LOG_FILE
+                dst = f"{LOG_FILE}.{i}"
+                if i == LOG_BACKUP_COUNT:
+                    # Delete the oldest backup
+                    if os.path.exists(dst):
+                        os.remove(dst)
+                if i > 1:
+                    prev = f"{LOG_FILE}.{i - 1}"
+                    if os.path.exists(prev):
+                        os.rename(prev, dst)
+
+            # Rename current log to .1
+            if os.path.exists(LOG_FILE):
+                os.rename(LOG_FILE, f"{LOG_FILE}.1")
+
+            # Close and reopen the log file handle so dsd-fme writes to the new file
+            if hasattr(self, '_log_file') and self._log_file:
+                self._log_file.close()
+                self._log_file = open(LOG_FILE, "a")
+                # Redirect the process stderr to the new file
+                if self.process and self.process.poll() is None:
+                    # Can't redirect stderr of a running process, so just restart
+                    logger.info("Log rotated, restarting dsd-fme to pick up new log file")
+                    self._do_watchdog_restart("log rotation")
+                    return
+
+            logger.info("Log rotation complete")
+        except Exception as e:
+            logger.error(f"Log rotation failed: {e}", exc_info=True)
+
     def _is_process_frozen(self) -> bool:
         """Check if the radio process appears frozen by monitoring log file activity.
 
         Returns:
             True if the process appears frozen, False otherwise.
         """
-        log_file = "dsd-fme.jsonl"
+        log_file = LOG_FILE
         try:
             if os.path.exists(log_file):
                 last_modified = os.path.getmtime(log_file)
@@ -433,6 +479,9 @@ class RadioManager:
 
                 # Process is running — clear stopped timer
                 self._stopped_since = None
+
+                # Check log file size and rotate if needed
+                self._rotate_log_if_needed()
 
                 # Check for frozen process
                 if self._is_process_frozen():

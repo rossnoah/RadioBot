@@ -9,4 +9,9 @@ login.log
 events.txt
 dmr_log.jsonl
 dsd-fme.jsonl
+dsd-fme.jsonl.*
 dsd-fme.pid
+venv/
+WAV/
+DSP/
+logs/
