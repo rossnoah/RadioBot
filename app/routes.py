@@ -3,6 +3,7 @@ import os
 import calendar
 from collections import OrderedDict
 from datetime import date, timedelta
+from functools import wraps
 from flask import Blueprint, render_template, request, abort, send_from_directory, redirect, url_for, make_response
 from werkzeug.utils import safe_join
 from user_agents import parse
@@ -26,6 +27,26 @@ from app.utils import (
 )
 
 _PRANK_COOKIE = "prank_auth"
+
+# Simple time-based response cache
+_response_cache = {}
+
+def timed_cache(seconds):
+    """Decorator that caches a view function's response for a given TTL."""
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            import time
+            key = f.__name__
+            now = time.time()
+            cached = _response_cache.get(key)
+            if cached and now - cached[1] < seconds:
+                return cached[0]
+            result = f(*args, **kwargs)
+            _response_cache[key] = (result, now)
+            return result
+        return wrapper
+    return decorator
 
 # Create blueprints
 files_bp = Blueprint('files', __name__)
@@ -54,6 +75,7 @@ def setup_routes(app, record_folder: str):
 
     @files_bp.route("/")
     @require_password
+    @timed_cache(15)
     def index():
         """List all recording dates."""
         record_folder = app.config['RECORD_FOLDER']
@@ -174,6 +196,7 @@ def setup_routes(app, record_folder: str):
 
     @files_bp.route("/status")
     @require_password
+    @timed_cache(15)
     def status():
         """Show system status: restarts, storage, recording count."""
         record_folder = app.config['RECORD_FOLDER']
