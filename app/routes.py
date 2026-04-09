@@ -1,5 +1,7 @@
 """Flask routes and blueprints."""
 import os
+import calendar
+from collections import OrderedDict
 from datetime import timedelta
 from flask import Blueprint, render_template, request, abort, send_from_directory, redirect, url_for, make_response
 from werkzeug.utils import safe_join
@@ -62,9 +64,25 @@ def setup_routes(app, record_folder: str):
         ]
         date_dirs.sort(reverse=True)
 
-        date_info = [(date, format_date_display(date)) for date in date_dirs]
+        # Build a set for O(1) lookup and group by month for calendar display
+        date_set = set(date_dirs)
+        months = OrderedDict()
+        for d in date_dirs:
+            try:
+                year, month = int(d[:4]), int(d[4:6])
+            except (ValueError, IndexError):
+                continue
+            key = (year, month)
+            if key not in months:
+                months[key] = {
+                    'label': f"{calendar.month_name[month]} {year}",
+                    'weeks': calendar.monthcalendar(year, month),
+                    'year': year,
+                    'month': month,
+                }
+
         radio_status = get_radio_status()
-        return render_template("index.html", date_info=date_info, branding=BRANDING, radio_status=radio_status)
+        return render_template("index.html", months=months, date_set=date_set, branding=BRANDING, radio_status=radio_status)
 
     @files_bp.route("/files/<date>")
     @require_password

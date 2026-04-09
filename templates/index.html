@@ -78,21 +78,43 @@
 
       <!-- Recording Dates Card -->
       <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full max-w-md">
-        <h1 class="text-4xl font-extrabold mb-8 text-center text-indigo-600 dark:text-indigo-400">
-          Available Recording Dates
+        <h1 class="text-2xl font-bold mb-4 text-center text-indigo-600 dark:text-indigo-400">
+          Recordings
         </h1>
-        <ul class="space-y-4">
-          {% for date, formatted_date in date_info %}
-          <li>
-            <a
-              href="/files/{{ date }}"
-              class="block bg-indigo-50 dark:bg-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500 transition-colors duration-300 p-4 rounded-lg shadow-sm text-indigo-600 dark:text-indigo-300 font-semibold text-center"
-            >
-              {{ formatted_date }}
-            </a>
-          </li>
-          {% endfor %}
-        </ul>
+        {% for key, month_data in months.items() %}
+        <details {% if loop.index <= 3 %}open{% endif %}
+          class="border-b border-gray-100 dark:border-gray-700 last:border-0 mb-1">
+          <summary class="cursor-pointer py-2 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            {{ month_data.label }}
+          </summary>
+          <div class="pb-3">
+            <div class="grid grid-cols-7 gap-1 text-center mb-1">
+              {% for dow in ['S','M','T','W','T','F','S'] %}
+              <span class="text-xs text-gray-400 dark:text-gray-500 font-medium">{{ dow }}</span>
+              {% endfor %}
+            </div>
+            {% for week in month_data.weeks %}
+            <div class="grid grid-cols-7 gap-1 text-center">
+              {% for day in week %}
+                {% if day == 0 %}
+                  <span></span>
+                {% else %}
+                  {% set date_key = '%04d%02d%02d' | format(month_data.year, month_data.month, day) %}
+                  {% if date_key in date_set %}
+                    <a href="/files/{{ date_key }}"
+                       class="block py-1 rounded-md text-sm font-semibold bg-indigo-100 dark:bg-indigo-600 text-indigo-700 dark:text-indigo-200 hover:bg-indigo-200 dark:hover:bg-indigo-500 transition-colors">
+                      {{ day }}
+                    </a>
+                  {% else %}
+                    <span class="py-1 text-sm text-gray-300 dark:text-gray-600">{{ day }}</span>
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+            </div>
+            {% endfor %}
+          </div>
+        </details>
+        {% endfor %}
       </div>
 
     </div>
