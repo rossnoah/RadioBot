@@ -9,6 +9,8 @@ from typing import Optional
 from app.config import get_config
 import app.models as models
 
+PID_FILE = "dsd-fme.pid"
+
 logger = logging.getLogger(__name__)
 
 # Watchdog settings
@@ -87,11 +89,63 @@ class RadioManager:
 
         return command
 
+    def _kill_orphaned_processes(self):
+        """Find and kill any orphaned dsd-fme processes from a previous worker."""
+        # Check PID file first
+        if os.path.exists(PID_FILE):
+            try:
+                with open(PID_FILE) as f:
+                    old_pid = int(f.read().strip())
+                # Check if this PID is actually a dsd-fme process
+                try:
+                    cmdline_path = f"/proc/{old_pid}/cmdline"
+                    if os.path.exists(cmdline_path):
+                        with open(cmdline_path) as f:
+                            cmdline = f.read()
+                        if "dsd-fme" in cmdline:
+                            logger.warning(f"Killing orphaned dsd-fme process (PID {old_pid}) from PID file")
+                            os.kill(old_pid, signal.SIGTERM)
+                            time.sleep(2)
+                            try:
+                                os.kill(old_pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                except (ProcessLookupError, FileNotFoundError):
+                    pass
+            except (ValueError, OSError) as e:
+                logger.warning(f"Could not read PID file: {e}")
+            try:
+                os.remove(PID_FILE)
+            except OSError:
+                pass
+
+        # Fallback: use pkill to catch any dsd-fme processes we don't know about
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", "dsd-fme"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                pids = result.stdout.strip().split("\n")
+                for pid_str in pids:
+                    try:
+                        pid = int(pid_str)
+                        logger.warning(f"Killing orphaned dsd-fme process (PID {pid})")
+                        os.kill(pid, signal.SIGTERM)
+                    except (ValueError, ProcessLookupError):
+                        pass
+                time.sleep(2)
+        except FileNotFoundError:
+            pass
+
     def start(self):
         """Start the radio monitoring process."""
         if self.is_running():
             logger.warning("Radio process is already running")
             return
+
+        # Kill any orphaned dsd-fme processes that may be holding the USB device
+        self._kill_orphaned_processes()
 
         try:
             command = self._build_command()
@@ -128,6 +182,13 @@ class RadioManager:
 
             self._last_start_time = time.time()
             self._stopped_since = None  # Clear stopped timer on successful start
+
+            # Write PID file so we can find orphans after worker restart
+            try:
+                with open(PID_FILE, "w") as f:
+                    f.write(str(self.process.pid))
+            except OSError as e:
+                logger.warning(f"Could not write PID file: {e}")
 
             logger.info(f"Radio process started successfully (PID: {self.process.pid})")
             logger.info(f"Monitoring DMR on {self.config['frequency']} MHz (gain: {self.config['gain']})")
@@ -189,6 +250,12 @@ class RadioManager:
             self.process = None
             self._last_start_time = None
 
+            # Clean up PID file
+            try:
+                if os.path.exists(PID_FILE):
+                    os.remove(PID_FILE)
+            except OSError:
+                pass
 
         except Exception as e:
             logger.error(f"Error stopping radio process: {e}")
