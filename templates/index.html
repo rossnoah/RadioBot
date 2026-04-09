@@ -81,6 +81,26 @@
         <h1 class="text-2xl font-bold mb-4 text-center text-indigo-600 dark:text-indigo-400">
           Recordings
         </h1>
+        <div class="flex gap-3 mb-4">
+          <a href="/files/{{ today }}"
+             class="flex-1 text-center py-2.5 rounded-lg font-semibold text-sm transition-colors
+               {% if today in date_set %}
+                 bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400
+               {% else %}
+                 bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500 pointer-events-none
+               {% endif %}">
+            Today
+          </a>
+          <a href="/files/{{ yesterday }}"
+             class="flex-1 text-center py-2.5 rounded-lg font-semibold text-sm transition-colors
+               {% if yesterday in date_set %}
+                 bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400
+               {% else %}
+                 bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500 pointer-events-none
+               {% endif %}">
+            Yesterday
+          </a>
+        </div>
         {% for key, month_data in months.items() %}
         <details {% if loop.index <= 3 %}open{% endif %}
           class="border-b border-gray-100 dark:border-gray-700 last:border-0 mb-1">

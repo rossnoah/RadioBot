@@ -2,7 +2,7 @@
 import os
 import calendar
 from collections import OrderedDict
-from datetime import timedelta
+from datetime import date, timedelta
 from flask import Blueprint, render_template, request, abort, send_from_directory, redirect, url_for, make_response
 from werkzeug.utils import safe_join
 from user_agents import parse
@@ -81,8 +81,11 @@ def setup_routes(app, record_folder: str):
                     'month': month,
                 }
 
+        today = date.today().strftime("%Y%m%d")
+        yesterday = (date.today() - timedelta(days=1)).strftime("%Y%m%d")
+
         radio_status = get_radio_status()
-        return render_template("index.html", months=months, date_set=date_set, branding=BRANDING, radio_status=radio_status)
+        return render_template("index.html", months=months, date_set=date_set, today=today, yesterday=yesterday, branding=BRANDING, radio_status=radio_status)
 
     @files_bp.route("/files/<date>")
     @require_password
