@@ -13,7 +13,7 @@ variable "name_prefix" {
 variable "max_uploads_per_day" {
   description = "Maximum number of presigned uploads the device may request per UTC day"
   type        = number
-  default     = 5000
+  default     = 50000
 }
 
 variable "max_bytes_per_day" {
