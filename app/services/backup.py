@@ -1,8 +1,8 @@
 """Optional S3 backup service.
 
-Uploads recordings and periodic database snapshots to S3 via presigned URLs
-issued by the backup Lambda (see infra/). The device holds only a shared
-secret, never AWS credentials.
+Uploads recordings, periodic database snapshots, and the config file to S3
+via presigned URLs issued by the backup Lambda (see infra/). The device holds
+only a shared secret, never AWS credentials.
 
 Design constraints:
 - Must never block or break primary operation: everything runs in a single
@@ -27,7 +27,9 @@ from app.models import get_db_connection, DATABASE_FILE
 logger = logging.getLogger(__name__)
 
 FILES_FOLDER = "files"
+CONFIG_FILE = "config.yaml"
 DB_SNAPSHOT_MARKER = "__db_snapshot__"
+CONFIG_BACKUP_MARKER = "__config_backup__"
 REQUEST_TIMEOUT = 30
 UPLOAD_TIMEOUT = 300
 
@@ -91,11 +93,12 @@ def _mark_uploaded(path: str, size: int):
         conn.close()
 
 
-def _last_db_snapshot_time() -> float:
+def _last_marker_time(marker: str) -> float:
+    """Return when the given marker row was last uploaded, as a unix timestamp."""
     conn = get_db_connection()
     try:
         cursor = conn.execute(
-            'SELECT uploaded_at FROM backup_uploads WHERE path = ?', (DB_SNAPSHOT_MARKER,)
+            'SELECT uploaded_at FROM backup_uploads WHERE path = ?', (marker,)
         )
         row = cursor.fetchone()
         if not row:
@@ -189,7 +192,7 @@ def _snapshot_db(settings: dict):
 
     Uploads to a fixed key; bucket versioning preserves history.
     """
-    if time.time() - _last_db_snapshot_time() < settings["db_snapshot_interval"]:
+    if time.time() - _last_marker_time(DB_SNAPSHOT_MARKER) < settings["db_snapshot_interval"]:
         return
 
     os.makedirs("temp", exist_ok=True)
@@ -221,6 +224,24 @@ def _snapshot_db(settings: dict):
                 pass
 
 
+def _backup_config(settings: dict):
+    """Upload config.yaml whenever it has changed since the last upload.
+
+    Uploads to a fixed key; bucket versioning preserves history.
+    """
+    try:
+        mtime = os.path.getmtime(CONFIG_FILE)
+    except OSError:
+        return
+
+    if mtime <= _last_marker_time(CONFIG_BACKUP_MARKER):
+        return
+
+    if _upload_file(settings, CONFIG_FILE, "config/config.yaml", track=False):
+        _mark_uploaded(CONFIG_BACKUP_MARKER, os.path.getsize(CONFIG_FILE))
+        logger.info("Backup: uploaded config.yaml")
+
+
 def _run_loop(settings: dict):
     consecutive_failures = 0
     while True:
@@ -228,6 +249,7 @@ def _run_loop(settings: dict):
             _ensure_table()
             _scan_recordings(settings)
             _snapshot_db(settings)
+            _backup_config(settings)
             consecutive_failures = 0
         except Exception as e:
             consecutive_failures += 1

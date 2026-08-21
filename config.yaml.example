@@ -2,6 +2,11 @@
 # Copy this file to config.yaml and fill in your actual values
 # DO NOT commit config.yaml to version control - it contains sensitive credentials
 
+# Config schema version — managed by the app's auto-migration system.
+# On startup, an older config is backed up (config.yaml.bak.v<N>) and
+# upgraded to the current version automatically. Do not edit by hand.
+config_version: 2
+
 # ============================================================================
 # APPLICATION SETTINGS
 # ============================================================================
@@ -17,10 +22,11 @@ application:
   branding: "Radio Bot"
   #branding: "YOURDOMAIN.COM"
 
-  # Password for the hidden prank page (/prank)
-  # OPTIONAL: Lets you inject fake transmissions that trigger alerts normally
+  # Password for the test console (/test)
+  # OPTIONAL: Lets you inject synthetic test transmissions to verify the
+  # pipeline end-to-end (file listing, live updates, search, alerts)
   # Default: "gotcha"
-  #prank_password: "your_prank_password_here"
+  #test_password: "your_test_password_here"
 
 # ============================================================================
 # RADIO SETTINGS (DSD-FME for DMR)
@@ -151,8 +157,9 @@ notifications:
 # ============================================================================
 # S3 BACKUP (OPTIONAL)
 # ============================================================================
-# Continuously backs up recordings and daily database snapshots to S3 via
-# presigned URLs issued by a small Lambda (no AWS credentials on this device).
+# Continuously backs up recordings, daily database snapshots, and this config
+# file (whenever it changes) to S3 via presigned URLs issued by a small Lambda
+# (no AWS credentials on this device).
 # Provision the AWS side first: cd infra && tofu init && tofu apply
 # Then copy the outputs here:
 #   endpoint_url: tofu output backup_endpoint_url

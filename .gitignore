@@ -4,6 +4,7 @@ __pycache__/
 files
 temp
 config.yaml
+config.yaml.bak.*
 
 login.log
 events.txt

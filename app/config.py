@@ -3,6 +3,8 @@ import os
 import yaml
 import logging
 
+from app.config_migrations import migrate_config
+
 logger = logging.getLogger(__name__)
 
 # Global config cache
@@ -16,7 +18,8 @@ def _load_config() -> dict:
         config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
         try:
             with open(config_path, 'r') as f:
-                _config_cache = yaml.safe_load(f)
+                _config_cache = yaml.safe_load(f) or {}
+            _config_cache = migrate_config(_config_cache, config_path)
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"Configuration file not found at {config_path}. "
@@ -41,8 +44,9 @@ if not APP_PASSWORD:
 # Branding (with default)
 BRANDING = config.get("application", {}).get("branding", "Radio Bot")
 
-# Prank page password (optional, defaults to "gotcha")
-PRANK_PASSWORD = config.get("application", {}).get("prank_password", "gotcha")
+# Test console password (optional; legacy prank_password is renamed to this
+# by the v2 config migration)
+TEST_PAGE_PASSWORD = config.get("application", {}).get("test_password", "gotcha")
 
 # API credentials
 DEEPGRAM_API_KEY = config.get("apis", {}).get("deepgram_api_key")

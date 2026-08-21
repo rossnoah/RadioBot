@@ -24,11 +24,13 @@ MAX_BYTES_PER_DAY = int(os.environ.get("MAX_BYTES_PER_DAY", str(2 * 1024**3)))
 MAX_OBJECT_BYTES = int(os.environ.get("MAX_OBJECT_BYTES", str(512 * 1024**2)))
 URL_EXPIRY_SECONDS = 300
 
-# Only recordings under a date folder, or DB snapshots. Anything else is rejected,
-# so even with the secret nothing outside these shapes can land in the bucket.
+# Only recordings under a date folder, DB snapshots, or config files. Anything
+# else is rejected, so even with the secret nothing outside these shapes can
+# land in the bucket.
 KEY_PATTERN = re.compile(
     r"^(recordings/\d{8}/[A-Za-z0-9._-]{1,200}\.wav"
-    r"|db/[A-Za-z0-9._-]{1,200}\.db(\.gz)?)$"
+    r"|db/[A-Za-z0-9._-]{1,200}\.db(\.gz)?"
+    r"|config/[A-Za-z0-9._-]{1,200}\.yaml)$"
 )
 
 s3 = boto3.client("s3")
