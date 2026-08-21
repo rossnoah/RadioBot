@@ -279,3 +279,49 @@ python server.py
 ```
 
 Access the web interface at `http://localhost:4000`
+
+## S3 Backup (Optional)
+
+Continuously backs up all recordings and a daily gzipped snapshot of `transcripts.db` to S3. The device never holds AWS credentials — it holds a shared secret and asks a small Lambda for presigned, size-bound upload URLs. The Lambda enforces a daily upload quota (count and bytes) in DynamoDB, so a leaked secret can at worst upload up to the quota until you rotate it; it can never read, list, or delete anything. Backup failures never affect radio capture: uploads run in a background thread and are retried on the next scan.
+
+### Provisioning (once, from any machine with AWS access)
+
+```bash
+brew install opentofu   # or terraform
+cd infra
+tofu init
+tofu apply
+```
+
+This creates: a private versioned S3 bucket with lifecycle rules, a DynamoDB quota table, the Lambda with a public Function URL, and a random device secret. Optional variables (see `infra/variables.tf`): quota limits and `budget_alert_email` for a monthly cost alert.
+
+### Enabling on the device
+
+Add to `config.yaml` using the apply outputs:
+
+```yaml
+backup:
+  enabled: true
+  endpoint_url: "<tofu output backup_endpoint_url>"
+  secret: "<tofu output -raw device_secret>"
+```
+
+On first start with backup enabled, all existing recordings in `files/` are backfilled; after that, new recordings upload within one scan interval (default 60s). Upload state is tracked in the `backup_uploads` table in `transcripts.db`.
+
+### Restoring
+
+From any machine with AWS admin credentials:
+
+```bash
+aws s3 sync s3://radiobot-backup-<account-id>/radiobot/recordings/ files/
+aws s3 cp s3://radiobot-backup-<account-id>/radiobot/db/transcripts.db.gz - | gunzip > transcripts.db
+```
+
+### Rotating the secret
+
+```bash
+cd infra
+tofu apply -replace=random_password.device_secret
+```
+
+Then update `backup.secret` in `config.yaml` on the device.

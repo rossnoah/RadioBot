@@ -147,3 +147,33 @@ notifications:
         # Add words here that should only alert when repeated, such as:
         # - "party"
         # - "noise"
+
+# ============================================================================
+# S3 BACKUP (OPTIONAL)
+# ============================================================================
+# Continuously backs up recordings and daily database snapshots to S3 via
+# presigned URLs issued by a small Lambda (no AWS credentials on this device).
+# Provision the AWS side first: cd infra && tofu init && tofu apply
+# Then copy the outputs here:
+#   endpoint_url: tofu output backup_endpoint_url
+#   secret:       tofu output -raw device_secret
+# Backup failures never affect radio capture — uploads are retried on the
+# next scan. On first enable, ALL existing recordings are backfilled.
+
+backup:
+  # Set to true to enable S3 backup
+  enabled: false
+
+  # Lambda Function URL from `tofu output backup_endpoint_url`
+  endpoint_url: "https://your-function-url.lambda-url.us-east-1.on.aws/"
+
+  # Shared secret from `tofu output -raw device_secret`
+  secret: "your_backup_secret_here"
+
+  # How often to scan for un-uploaded recordings (seconds)
+  # OPTIONAL: Default 60
+  #scan_interval_seconds: 60
+
+  # How often to upload a database snapshot (hours)
+  # OPTIONAL: Default 24
+  #db_snapshot_interval_hours: 24

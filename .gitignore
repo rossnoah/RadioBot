@@ -15,3 +15,9 @@ venv/
 WAV/
 DSP/
 logs/
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/build/
+infra/terraform.tfvars
+infra/tfplan

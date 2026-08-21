@@ -8,6 +8,7 @@ from flask import Flask
 from flask_socketio import SocketIO
 
 import app.models as models
+import app.services.backup as backup_service
 import app.services.file_organizer as file_organizer
 import app.services.radio_manager as radio_manager
 from app.routes import setup_routes
@@ -71,6 +72,9 @@ def initialize_app():
     # Start file organizer
     file_organizer.start_organizer_thread()
     logger.info("File organizer started")
+
+    # Start optional S3 backup (no-op unless enabled in config; never raises)
+    backup_service.start_backup_thread()
 
     # Start radio monitoring process
     try:
