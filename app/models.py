@@ -164,8 +164,8 @@ def save_transcript(filename, transcript, api_response, is_fake: bool = False, d
         conn.close()
 
 
-def get_prank_transcripts():
-    """Return all prank/fake transcripts."""
+def get_test_transcripts():
+    """Return all injected test transcripts."""
     conn = get_db_connection()
     try:
         cursor = conn.execute('SELECT * FROM transcripts WHERE is_fake = 1 ORDER BY timestamp DESC')
@@ -174,8 +174,8 @@ def get_prank_transcripts():
         conn.close()
 
 
-def delete_prank_transcripts():
-    """Delete all prank/fake transcripts and return their filenames."""
+def delete_test_transcripts():
+    """Delete all injected test transcripts and return their filenames."""
     conn = get_db_connection()
     try:
         cursor = conn.execute('SELECT filename FROM transcripts WHERE is_fake = 1')

@@ -9,7 +9,7 @@ from werkzeug.utils import safe_join
 from user_agents import parse
 
 import app.models as models
-from app.config import BRANDING, PRANK_PASSWORD
+from app.config import BRANDING, TEST_PAGE_PASSWORD
 from app.services.radio_manager import get_radio_status
 from app.services.transcription import get_transcription_status
 from app.services.file_processor import inject_fake_message
@@ -27,7 +27,7 @@ from app.utils import (
     _load_unit_config,
 )
 
-_PRANK_COOKIE = "prank_auth"
+_TEST_COOKIE = "test_auth"
 
 # Simple time-based response cache
 _response_cache = {}
@@ -270,26 +270,29 @@ def setup_routes(app, record_folder: str):
         output.reverse()
         return render_template("search_results.html", query=query, results=output, branding=BRANDING)
 
-    @files_bp.route("/prank", methods=["GET", "POST"])
-    def prank():
-        """Hidden prank message injector. Password-protected separately from the main site."""
+    @files_bp.route("/test", methods=["GET", "POST"])
+    def test_page():
+        """Test console for injecting synthetic transmissions end-to-end.
+
+        Password-protected separately from the main site.
+        """
         error = None
         success = None
-        is_authed = request.cookies.get(_PRANK_COOKIE) == PRANK_PASSWORD
+        is_authed = request.cookies.get(_TEST_COOKIE) == TEST_PAGE_PASSWORD
 
         if request.method == "POST":
             action = request.form.get("action", "")
 
             if action == "auth":
                 password = request.form.get("password", "")
-                if password == PRANK_PASSWORD:
-                    resp = make_response(redirect(url_for("files.prank")))
-                    resp.set_cookie(_PRANK_COOKIE, PRANK_PASSWORD, max_age=60 * 60 * 2, httponly=True, samesite="Lax")
+                if password == TEST_PAGE_PASSWORD:
+                    resp = make_response(redirect(url_for("files.test_page")))
+                    resp.set_cookie(_TEST_COOKIE, TEST_PAGE_PASSWORD, max_age=60 * 60 * 2, httponly=True, samesite="Lax")
                     return resp
-                error = "Wrong password"
+                error = "Incorrect password"
 
             elif action == "cleanup" and is_authed:
-                filenames = models.delete_prank_transcripts()
+                filenames = models.delete_test_transcripts()
                 deleted_files = 0
                 for fname in filenames:
                     try:
@@ -327,15 +330,15 @@ def setup_routes(app, record_folder: str):
                         error = "Failed to create fake message"
 
         unit_map = _load_unit_config() if is_authed else {}
-        prank_count = len(models.get_prank_transcripts()) if is_authed else 0
+        test_count = len(models.get_test_transcripts()) if is_authed else 0
         return render_template(
-            "prank.html",
+            "test.html",
             branding=BRANDING,
             is_authed=is_authed,
             error=error,
             success=success,
             units=unit_map,
-            prank_count=prank_count,
+            test_count=test_count,
         )
 
     # Register blueprints
