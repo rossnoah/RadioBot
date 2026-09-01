@@ -255,9 +255,21 @@ func bind(handle uintptr, lib *library) (err error) {
 	return nil
 }
 
-// resolveLibrary finds libmoonshine, preferring an explicit path, then an
-// override, then a lib/ directory beside the binary, then the loader's own
-// search path.
+// libraryName is what the platform calls the Moonshine library.
+func libraryName() string {
+	if runtime.GOOS == "darwin" {
+		return "libmoonshine.dylib"
+	}
+	return "libmoonshine.so"
+}
+
+// resolveLibrary finds libmoonshine. Explicit choices win, then the copy
+// compiled into this binary, then one deployed beside it, then the system
+// loader's own search path.
+//
+// The embedded copy is preferred over a stray lib/ directory because it is
+// the build this code was compiled against; the two overrides above it exist
+// so a newer library can still be tried without a rebuild.
 func resolveLibrary(explicit string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
@@ -266,9 +278,15 @@ func resolveLibrary(explicit string) (string, error) {
 		return fromEnv, nil
 	}
 
-	name := "libmoonshine.so"
-	if runtime.GOOS == "darwin" {
-		name = "libmoonshine.dylib"
+	name := libraryName()
+
+	if path, err := unpackEmbedded(name); err == nil {
+		return path, nil
+	} else if !errors.Is(err, errNoEmbeddedLibrary) {
+		// A build that carries libraries but cannot unpack them is a real
+		// problem worth reporting, not a reason to look elsewhere.
+		slog.Warn("could not unpack the embedded moonshine library; looking on disk instead",
+			"error", err)
 	}
 
 	var candidates []string

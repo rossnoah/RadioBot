@@ -23,13 +23,13 @@ This project provides a complete solution for monitoring digital radio communica
 ## Installation
 
 1. Install system dependencies (dsd-fme and RTL-SDR drivers)
-2. Build the server and install the on-device fallback:
+2. Build the server:
    ```bash
    ./setup.sh
    ```
-   This produces `./radiobot`, puts `libmoonshine` in `lib/`, and pre-fetches
-   the transcription model into `models/`. Pass `--no-fallback` to skip the
-   fallback and rely on Deepgram alone.
+   This produces a single self-contained `./radiobot` with the on-device
+   transcription libraries compiled in. Pass `--no-fallback` for a smaller
+   Deepgram-only build.
 3. Create and configure your `config.yaml`:
 
    ```bash
@@ -303,17 +303,27 @@ To transcribe and file a single WAV from an external script:
 
 ### Building for the Raspberry Pi
 
-The binary has no cgo dependencies, so it cross-compiles from any machine:
+Build the whole thing on your laptop and copy one file:
 
 ```bash
-GOOS=linux GOARCH=arm64 go build -o radiobot ./cmd/radiobot   # Pi 4/5, 64-bit
-GOOS=linux GOARCH=arm   go build -o radiobot ./cmd/radiobot   # 32-bit
+./setup.sh linux/arm64          # Pi 4/5, 64-bit
+scp radiobot config.yaml pi:~/RadioBot/
 ```
 
-Copy the binary and `config.yaml` to the device, then run `./setup.sh` there
-to fetch the matching `lib/libmoonshine.so` and the model — those are
-platform-specific, so they are not cross-compiled with the binary. Templates
-are embedded.
+`setup.sh` fetches the Moonshine libraries for the *target* platform, not the
+build host, and compiles them into the binary. There is no cgo, so the
+cross-compile is an ordinary `GOOS`/`GOARCH` build. Templates are embedded
+too, so the binary is the deployment.
+
+On first use the binary unpacks its libraries into a cache directory
+(`$XDG_CACHE_HOME/radiobot`, or `RADIOBOT_CACHE_DIR`) and loads them from
+there — a shared library has to be a file on disk for the loader to map it.
+The directory is named after a digest of the libraries, so upgrading the
+binary cannot collide with what an older one unpacked.
+
+The transcription model is separate: it is ordinary data, identical on every
+platform, and downloaded at runtime into `models/`. Fetch it ahead of time
+with `./radiobot fetch-model`.
 
 ## Architecture
 
@@ -380,10 +390,11 @@ minutes until it recovers. The current engine is shown on the status page.
 Moonshine is called through its C ABI, the same one its Python, Swift, and
 Java bindings use. The library is `dlopen`ed at runtime rather than linked, so
 the binary still builds with `CGO_ENABLED=0` and cross-compiles to the Pi from
-anywhere; `lib/libmoonshine.so` is just a file deployed alongside it.
+anywhere.
 
-- `-moonshine-lib` sets the library path (default: `$MOONSHINE_LIB`, then
-  `lib/` beside the binary, then the system loader's search path).
+- `-moonshine-lib` sets the library path, overriding the embedded copy
+  (default: `$MOONSHINE_LIB`, then the embedded copy, then `lib/` beside the
+  binary, then the system loader's search path).
 - `-moonshine-models` sets the model directory (default `models/moonshine`).
 - `radiobot fetch-model` downloads the model ahead of time. Do this during
   setup: the model is a few hundred megabytes, and the alternative is fetching

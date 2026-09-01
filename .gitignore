@@ -27,6 +27,7 @@ infra/backend.hcl
 # Go build output
 /radiobot
 
-# Moonshine runtime assets, installed by setup.sh
+# Moonshine assets: libraries staged for embedding, and the downloaded model
+internal/moonshine/embedded/
 /lib/
 /models/
