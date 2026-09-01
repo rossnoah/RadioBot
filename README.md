@@ -18,17 +18,18 @@ This project provides a complete solution for monitoring digital radio communica
 - RTL-SDR compatible hardware
 - `dsd-fme` for digital signal decoding
 - Go 1.22 or newer (to build; the result is a single static binary)
-- Python 3 — only for the optional Moonshine transcription fallback
+- No Python. The on-device fallback is a C library loaded at runtime.
 
 ## Installation
 
 1. Install system dependencies (dsd-fme and RTL-SDR drivers)
-2. Build the server and set up the Moonshine fallback:
+2. Build the server and install the on-device fallback:
    ```bash
    ./setup.sh
    ```
-   This produces `./radiobot` and a `venv` holding `moonshine-voice`. Pass
-   `--no-python` to skip the fallback and rely on Deepgram alone.
+   This produces `./radiobot`, puts `libmoonshine` in `lib/`, and pre-fetches
+   the transcription model into `models/`. Pass `--no-fallback` to skip the
+   fallback and rely on Deepgram alone.
 3. Create and configure your `config.yaml`:
 
    ```bash
@@ -309,8 +310,10 @@ GOOS=linux GOARCH=arm64 go build -o radiobot ./cmd/radiobot   # Pi 4/5, 64-bit
 GOOS=linux GOARCH=arm   go build -o radiobot ./cmd/radiobot   # 32-bit
 ```
 
-Copy the binary, `config.yaml`, `scripts/`, and (if you want the Moonshine
-fallback) the `venv` to the device. Templates are embedded in the binary.
+Copy the binary and `config.yaml` to the device, then run `./setup.sh` there
+to fetch the matching `lib/libmoonshine.so` and the model — those are
+platform-specific, so they are not cross-compiled with the binary. Templates
+are embedded.
 
 ## Architecture
 
@@ -326,7 +329,10 @@ internal/notify     GroupMe and Discord keyword alerts
 internal/backup     S3 backup via presigned URLs
 internal/hub        WebSocket fan-out for live dashboard updates
 internal/web        HTTP handlers and embedded templates
-scripts/            the Moonshine Python sidecar
+internal/moonshine  Go binding to the Moonshine C ABI (on-device fallback)
+internal/sysinfo    host and Go runtime metrics for the status page
+internal/systemd    sd_notify, for readiness and liveness
+internal/escalation the give-up policy that keeps a fault from reboot-looping
 ```
 
 ### Recovery
@@ -368,12 +374,24 @@ journalctl -u radiobot -f
 ### Transcription
 
 Deepgram is the primary engine. If it fails three times in a row, the server
-switches to Moonshine, an on-device model that runs through
-`scripts/moonshine_transcribe.py`, and probes Deepgram every five minutes until
-it recovers. The current engine is shown on the status page.
+switches to Moonshine — an on-device model — and probes Deepgram every five
+minutes until it recovers. The current engine is shown on the status page.
 
-The sidecar runs under `venv/bin/python3` if that exists, otherwise `python3`.
-Set `RADIOBOT_PYTHON` to point at a specific interpreter.
+Moonshine is called through its C ABI, the same one its Python, Swift, and
+Java bindings use. The library is `dlopen`ed at runtime rather than linked, so
+the binary still builds with `CGO_ENABLED=0` and cross-compiles to the Pi from
+anywhere; `lib/libmoonshine.so` is just a file deployed alongside it.
+
+- `-moonshine-lib` sets the library path (default: `$MOONSHINE_LIB`, then
+  `lib/` beside the binary, then the system loader's search path).
+- `-moonshine-models` sets the model directory (default `models/moonshine`).
+- `radiobot fetch-model` downloads the model ahead of time. Do this during
+  setup: the model is a few hundred megabytes, and the alternative is fetching
+  it during a Deepgram outage.
+
+The struct layouts this binding reads are an ABI contract, so the library's
+version is checked on load and a mismatch refuses to run rather than reading
+native memory at the wrong offsets.
 
 ## S3 Backup (Optional)
 

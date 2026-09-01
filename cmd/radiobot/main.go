@@ -20,6 +20,7 @@ import (
 	"github.com/rossnoah/radiobot/internal/db"
 	"github.com/rossnoah/radiobot/internal/escalation"
 	"github.com/rossnoah/radiobot/internal/hub"
+	"github.com/rossnoah/radiobot/internal/moonshine"
 	"github.com/rossnoah/radiobot/internal/notify"
 	"github.com/rossnoah/radiobot/internal/organizer"
 	"github.com/rossnoah/radiobot/internal/processor"
@@ -35,6 +36,10 @@ const recordFolder = "files"
 func main() {
 	addr := flag.String("addr", ":4000", "address for the web server to listen on")
 	configPath := flag.String("config", config.Path, "path to config.yaml")
+	moonshineLib := flag.String("moonshine-lib", "",
+		"path to libmoonshine (default: $MOONSHINE_LIB, then lib/ beside the binary)")
+	moonshineModels := flag.String("moonshine-models", moonshine.DefaultModelDir,
+		"directory holding the on-device transcription model")
 	notifyMode := flag.String("notify", "send",
 		"where alerts go: \"send\" delivers to GroupMe/Discord, \"console\" only logs them (use this when testing against a real config)")
 	flag.Usage = usage
@@ -42,7 +47,8 @@ func main() {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	if err := run(*addr, *configPath, *notifyMode, flag.Args()); err != nil {
+	opts := moonshine.Options{LibraryPath: *moonshineLib, ModelDir: *moonshineModels}
+	if err := run(*addr, *configPath, *notifyMode, opts, flag.Args()); err != nil {
 		slog.Error("fatal", "error", err)
 		os.Exit(1)
 	}
@@ -54,6 +60,7 @@ func usage() {
 Usage:
   radiobot [flags]                 run the server
   radiobot [flags] ingest <file>   transcribe and file one WAV, then exit
+  radiobot [flags] fetch-model     download the on-device fallback model
 
 When testing against a real config, pass -notify console so alerts are logged
 instead of delivered to GroupMe or Discord.
@@ -63,7 +70,7 @@ Flags:
 	flag.PrintDefaults()
 }
 
-func run(addr, configPath, notifyMode string, args []string) error {
+func run(addr, configPath, notifyMode string, moonshineOpts moonshine.Options, args []string) error {
 	for _, dir := range []string{"logs", "temp", recordFolder} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("creating %s: %w", dir, err)
@@ -94,9 +101,9 @@ func run(addr, configPath, notifyMode string, args []string) error {
 	}
 
 	if len(args) > 0 {
-		return runSubcommand(cfg, store, notifier, args)
+		return runSubcommand(cfg, store, notifier, moonshineOpts, args)
 	}
-	return runServer(addr, cfg, store, notifier)
+	return runServer(addr, cfg, store, notifier, moonshineOpts)
 }
 
 // newNotifier builds the alert sender for the chosen mode. Console mode exists
@@ -125,6 +132,11 @@ func checkArgs(args []string) error {
 			return errors.New("usage: radiobot ingest <file.wav>")
 		}
 		return nil
+	case "fetch-model":
+		if len(args) != 1 {
+			return errors.New("usage: radiobot fetch-model")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown command %q; run with -h for usage", args[0])
 	}
@@ -132,10 +144,13 @@ func checkArgs(args []string) error {
 
 // runSubcommand handles the one-shot CLI modes, which share the config and
 // database with the server but start none of the background services.
-func runSubcommand(cfg *config.Config, store *db.DB, notifier *notify.Notifier, args []string) error {
+func runSubcommand(cfg *config.Config, store *db.DB, notifier *notify.Notifier,
+	moonshineOpts moonshine.Options, args []string) error {
 	switch args[0] {
 	case "ingest":
-		return ingest(cfg, store, notifier, args[1])
+		return ingest(cfg, store, notifier, moonshineOpts, args[1])
+	case "fetch-model":
+		return fetchModel(moonshineOpts)
 	default:
 		return fmt.Errorf("unknown command %q; run with -h for usage", args[0])
 	}
@@ -143,8 +158,10 @@ func runSubcommand(cfg *config.Config, store *db.DB, notifier *notify.Notifier, 
 
 // ingest transcribes and records a single WAV file supplied by an external
 // script, without emitting a live update (no browser is expecting one).
-func ingest(cfg *config.Config, store *db.DB, notifier *notify.Notifier, filePath string) error {
-	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, store)
+func ingest(cfg *config.Config, store *db.DB, notifier *notify.Notifier,
+	moonshineOpts moonshine.Options, filePath string) error {
+	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, store, moonshineOpts)
+	defer transcriber.Close()
 	proc := processor.New(cfg, store, transcriber, notifier, nil, nil)
 
 	if _, err := os.Stat(filePath); err != nil {
@@ -157,7 +174,23 @@ func ingest(cfg *config.Config, store *db.DB, notifier *notify.Notifier, filePat
 	return nil
 }
 
-func runServer(addr string, cfg *config.Config, store *db.DB, notifier *notify.Notifier) error {
+// fetchModel downloads the on-device transcription model ahead of time, so a
+// Deepgram outage does not also mean waiting on a large download.
+func fetchModel(opts moonshine.Options) error {
+	slog.Info("fetching the on-device transcription model", "dir", opts.ModelDir)
+
+	transcriber, err := moonshine.Open(opts)
+	if err != nil {
+		return err
+	}
+	transcriber.Close()
+
+	slog.Info("the on-device transcription model is ready")
+	return nil
+}
+
+func runServer(addr string, cfg *config.Config, store *db.DB, notifier *notify.Notifier,
+	moonshineOpts moonshine.Options) error {
 	// Cancelled on the first shutdown signal, which stops every background service.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -166,7 +199,8 @@ func runServer(addr string, cfg *config.Config, store *db.DB, notifier *notify.N
 	defer sd.Close()
 
 	events := hub.New()
-	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, store)
+	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, store, moonshineOpts)
+	defer transcriber.Close()
 	radioManager := radio.New(cfg.Radio, store)
 	proc := processor.New(cfg, store, transcriber, notifier, events, radioManager)
 

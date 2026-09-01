@@ -138,3 +138,100 @@ func WriteSilence(path string, sampleRate int, seconds float64) error {
 	}
 	return nil
 }
+
+// ReadPCM decodes a 16-bit PCM WAV into normalised mono samples in [-1, 1],
+// which is the form on-device speech models take. Stereo is mixed down.
+func ReadPCM(path string) (samples []float32, sampleRate int, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+
+	var riff struct {
+		ID   [4]byte
+		Size uint32
+		Type [4]byte
+	}
+	if err := binary.Read(f, binary.LittleEndian, &riff); err != nil {
+		return nil, 0, err
+	}
+	if string(riff.ID[:]) != "RIFF" || string(riff.Type[:]) != "WAVE" {
+		return nil, 0, errNotWAV
+	}
+
+	var channels, bitsPerSample int
+	for {
+		var header struct {
+			ID   [4]byte
+			Size uint32
+		}
+		if err := binary.Read(f, binary.LittleEndian, &header); err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				return nil, 0, errors.New("wav file has no data chunk")
+			}
+			return nil, 0, err
+		}
+
+		switch string(header.ID[:]) {
+		case "fmt ":
+			var fmtChunk struct {
+				AudioFormat   uint16
+				NumChannels   uint16
+				SampleRate    uint32
+				ByteRate      uint32
+				BlockAlign    uint16
+				BitsPerSample uint16
+			}
+			if err := binary.Read(f, binary.LittleEndian, &fmtChunk); err != nil {
+				return nil, 0, err
+			}
+			if fmtChunk.AudioFormat != 1 {
+				return nil, 0, fmt.Errorf("unsupported wav encoding %d, want PCM", fmtChunk.AudioFormat)
+			}
+			channels = int(fmtChunk.NumChannels)
+			sampleRate = int(fmtChunk.SampleRate)
+			bitsPerSample = int(fmtChunk.BitsPerSample)
+			if remaining := int64(header.Size) - 16; remaining > 0 {
+				if _, err := f.Seek(remaining, io.SeekCurrent); err != nil {
+					return nil, 0, err
+				}
+			}
+
+		case "data":
+			if channels == 0 {
+				return nil, 0, errors.New("wav data chunk precedes fmt chunk")
+			}
+			if bitsPerSample != 16 {
+				return nil, 0, fmt.Errorf("unsupported wav sample width %d, want 16", bitsPerSample)
+			}
+			raw := make([]byte, header.Size)
+			if _, err := io.ReadFull(f, raw); err != nil {
+				return nil, 0, err
+			}
+			return decode16BitPCM(raw, channels), sampleRate, nil
+
+		default:
+			skip := int64(header.Size) + int64(header.Size%2)
+			if _, err := f.Seek(skip, io.SeekCurrent); err != nil {
+				return nil, 0, err
+			}
+		}
+	}
+}
+
+// decode16BitPCM converts interleaved signed 16-bit samples to mono floats.
+func decode16BitPCM(raw []byte, channels int) []float32 {
+	frames := len(raw) / (2 * channels)
+	samples := make([]float32, frames)
+
+	for i := range samples {
+		var sum float32
+		for c := 0; c < channels; c++ {
+			offset := (i*channels + c) * 2
+			sum += float32(int16(binary.LittleEndian.Uint16(raw[offset:]))) / 32768
+		}
+		samples[i] = sum / float32(channels)
+	}
+	return samples
+}

@@ -2,6 +2,7 @@ package transcribe
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rossnoah/radiobot/internal/moonshine"
 )
 
 // savedTranscript is one call to the fake store.
@@ -68,9 +71,41 @@ func newService(t *testing.T, handler http.HandlerFunc) (*Service, *fakeStore) {
 	t.Cleanup(server.Close)
 
 	store := &fakeStore{}
-	service := New("test-key", store)
+	service := New("test-key", store, moonshine.Options{})
 	service.SetEndpoint(server.URL)
+
+	// Swap in a stub so the tests never touch the real library or the model
+	// download, and so the fallback path can be asserted on directly.
+	service.fallback = &stubFallback{text: "on device transcript"}
 	return service, store
+}
+
+// stubFallback stands in for the on-device engine.
+type stubFallback struct {
+	mu     sync.Mutex
+	text   string
+	err    error
+	calls  int
+	closed bool
+}
+
+func (s *stubFallback) transcribe(context.Context, string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	return s.text, s.err
+}
+
+func (s *stubFallback) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+}
+
+func (s *stubFallback) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
 }
 
 func TestTranscribeSuccess(t *testing.T) {
@@ -138,9 +173,7 @@ func TestTranscribeRetriesThenSucceeds(t *testing.T) {
 	}
 }
 
-// TestFallbackAfterExhaustedRetries checks the switch to Moonshine. The
-// sidecar is absent in tests, so the transcript is empty — what matters is
-// that the recording is still recorded and the engine state flips.
+// TestFallbackAfterExhaustedRetries checks the switch to the on-device model.
 func TestFallbackAfterExhaustedRetries(t *testing.T) {
 	var attempts int
 	service, store := newService(t, func(w http.ResponseWriter, r *http.Request) {
@@ -165,6 +198,9 @@ func TestFallbackAfterExhaustedRetries(t *testing.T) {
 	}
 	if got := store.last().response; got != moonshineResponse {
 		t.Errorf("stored response = %q, want %q", got, moonshineResponse)
+	}
+	if got := store.last().transcript; got != "on device transcript" {
+		t.Errorf("stored transcript = %q, want the on-device result", got)
 	}
 
 	status := service.Status()
@@ -257,5 +293,69 @@ func TestTranscribeStopsOnCancelledContext(t *testing.T) {
 	}
 	if store.count() != 0 {
 		t.Error("a cancelled transcription still wrote a transcript")
+	}
+}
+
+// TestFallbackErrorStillRecordsTheRecording: if the on-device model is
+// unavailable too, the recording must still land in the database with an
+// empty transcript rather than being retried forever or dropped.
+func TestFallbackErrorStillRecordsTheRecording(t *testing.T) {
+	service, store := newService(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	})
+	stub := &stubFallback{err: errors.New("library not found")}
+	service.fallback = stub
+
+	service.Transcribe(context.Background(), tempAudio(t), nil)
+
+	if store.count() != 1 {
+		t.Fatalf("saved %d transcripts, want 1", store.count())
+	}
+	if got := store.last().transcript; got != "" {
+		t.Errorf("transcript = %q, want empty", got)
+	}
+	if got := store.last().response; got != moonshineResponse {
+		t.Errorf("response = %q, want %q", got, moonshineResponse)
+	}
+	if stub.callCount() != 1 {
+		t.Errorf("fallback called %d times, want 1", stub.callCount())
+	}
+}
+
+// TestCloseReleasesTheFallback keeps the model from outliving the service.
+func TestCloseReleasesTheFallback(t *testing.T) {
+	service, _ := newService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(deepgramBody))
+	})
+	stub := &stubFallback{}
+	service.fallback = stub
+
+	service.Close()
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if !stub.closed {
+		t.Error("Close did not release the on-device model")
+	}
+}
+
+// TestFallbackUsedForEveryRecordingWhileDown confirms the on-device engine
+// carries the load during an outage rather than being consulted once.
+func TestFallbackUsedForEveryRecordingWhileDown(t *testing.T) {
+	service, store := newService(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	})
+	stub := &stubFallback{text: "still listening"}
+	service.fallback = stub
+
+	for i := 0; i < 3; i++ {
+		service.Transcribe(context.Background(), tempAudio(t), nil)
+	}
+
+	if stub.callCount() != 3 {
+		t.Errorf("fallback called %d times for 3 recordings, want 3", stub.callCount())
+	}
+	if store.count() != 3 {
+		t.Errorf("saved %d transcripts, want 3", store.count())
 	}
 }

@@ -1,6 +1,8 @@
 package wavutil
 
 import (
+	"bytes"
+	"encoding/binary"
 	"math"
 	"os"
 	"path/filepath"
@@ -83,5 +85,115 @@ func TestDurationSkipsUnknownChunks(t *testing.T) {
 	}
 	if math.Abs(got-1) > 1e-6 {
 		t.Errorf("Duration = %v, want 1", got)
+	}
+}
+
+// TestReadPCMRoundTrip checks the decoder against a file whose contents are
+// known, since this is what feeds the on-device transcription model.
+func TestReadPCMRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tone.wav")
+	if err := WriteSilence(path, 8000, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	samples, rate, err := ReadPCM(path)
+	if err != nil {
+		t.Fatalf("ReadPCM: %v", err)
+	}
+	if rate != 8000 {
+		t.Errorf("sample rate = %d, want 8000", rate)
+	}
+	if len(samples) != 8000 {
+		t.Errorf("decoded %d samples, want 8000", len(samples))
+	}
+	for i, s := range samples {
+		if s != 0 {
+			t.Fatalf("sample %d of a silent file = %v, want 0", i, s)
+		}
+	}
+}
+
+// TestReadPCMNormalises checks the conversion to [-1, 1], which is the range
+// the model expects.
+func TestReadPCMNormalises(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "levels.wav")
+	// Full-scale negative, silence, and near full-scale positive.
+	writeSamples(t, path, 8000, 1, []int16{-32768, 0, 32767})
+
+	samples, _, err := ReadPCM(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 3 {
+		t.Fatalf("decoded %d samples, want 3", len(samples))
+	}
+	if samples[0] != -1 {
+		t.Errorf("full-scale negative decoded as %v, want -1", samples[0])
+	}
+	if samples[1] != 0 {
+		t.Errorf("silence decoded as %v, want 0", samples[1])
+	}
+	if samples[2] <= 0.99 || samples[2] > 1 {
+		t.Errorf("full-scale positive decoded as %v, want just under 1", samples[2])
+	}
+}
+
+// TestReadPCMMixesStereoToMono covers the channel fold-down.
+func TestReadPCMMixesStereoToMono(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stereo.wav")
+	// Two frames: (+full, -full) averages to 0; (+full, +full) stays +full.
+	writeSamples(t, path, 8000, 2, []int16{32767, -32767, 32767, 32767})
+
+	samples, _, err := ReadPCM(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 2 {
+		t.Fatalf("decoded %d frames, want 2", len(samples))
+	}
+	if samples[0] > 1e-6 || samples[0] < -1e-6 {
+		t.Errorf("opposed channels mixed to %v, want ~0", samples[0])
+	}
+	if samples[1] <= 0.99 {
+		t.Errorf("matched channels mixed to %v, want ~1", samples[1])
+	}
+}
+
+func TestReadPCMRejectsNonPCM(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bad.wav")
+	if err := os.WriteFile(path, []byte("not a wav at all"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadPCM(path); err == nil {
+		t.Error("ReadPCM accepted a file that is not a WAV")
+	}
+}
+
+// writeSamples writes a 16-bit PCM WAV with the given interleaved samples.
+func writeSamples(t *testing.T, path string, sampleRate, channels int, samples []int16) {
+	t.Helper()
+
+	dataSize := len(samples) * 2
+	blockAlign := channels * 2
+	var buf bytes.Buffer
+
+	buf.WriteString("RIFF")
+	binary.Write(&buf, binary.LittleEndian, uint32(36+dataSize))
+	buf.WriteString("WAVEfmt ")
+	binary.Write(&buf, binary.LittleEndian, uint32(16))
+	binary.Write(&buf, binary.LittleEndian, uint16(1))
+	binary.Write(&buf, binary.LittleEndian, uint16(channels))
+	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate))
+	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate*blockAlign))
+	binary.Write(&buf, binary.LittleEndian, uint16(blockAlign))
+	binary.Write(&buf, binary.LittleEndian, uint16(16))
+	buf.WriteString("data")
+	binary.Write(&buf, binary.LittleEndian, uint32(dataSize))
+	for _, s := range samples {
+		binary.Write(&buf, binary.LittleEndian, s)
+	}
+
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

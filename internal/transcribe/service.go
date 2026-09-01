@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/rossnoah/radiobot/internal/moonshine"
 )
 
 const (
@@ -31,10 +33,18 @@ type Status struct {
 	FallbackSince string `json:"fallback_since"`
 }
 
+// Fallback is an on-device transcription engine, used when Deepgram cannot
+// be reached.
+type Fallback interface {
+	transcribe(ctx context.Context, filePath string) (string, error)
+	Close()
+}
+
 // Service transcribes recordings, falling back from Deepgram to Moonshine
 // when Deepgram fails and probing periodically for its recovery.
 type Service struct {
 	deepgram *deepgramClient
+	fallback Fallback
 	store    Store
 
 	mu                sync.Mutex
@@ -43,9 +53,21 @@ type Service struct {
 	lastDeepgramRetry time.Time
 }
 
-// New builds a transcription service backed by the given Deepgram key.
-func New(apiKey string, store Store) *Service {
-	return &Service{deepgram: newDeepgramClient(apiKey), store: store}
+// New builds a transcription service backed by the given Deepgram key, with
+// the on-device Moonshine model as its fallback.
+func New(apiKey string, store Store, moonshineOpts moonshine.Options) *Service {
+	return &Service{
+		deepgram: newDeepgramClient(apiKey),
+		fallback: newMoonshineEngine(moonshineOpts),
+		store:    store,
+	}
+}
+
+// Close releases the on-device model.
+func (s *Service) Close() {
+	if s.fallback != nil {
+		s.fallback.Close()
+	}
 }
 
 // SetEndpoint overrides the Deepgram endpoint. It exists for tests.
@@ -112,14 +134,19 @@ func (s *Service) transcribeInFallback(ctx context.Context, filePath string, dur
 }
 
 func (s *Service) saveViaMoonshine(ctx context.Context, filePath string, duration *float64) {
-	transcript, err := moonshineTranscribe(ctx, filePath)
-	if err != nil {
+	var transcript string
+	if s.fallback == nil {
+		slog.Error("no on-device transcription engine configured", "file", filePath)
+	} else if text, err := s.fallback.transcribe(ctx, filePath); err != nil {
 		// Record the (empty) result anyway so the recording still appears in
 		// the UI and is not retried forever.
-		slog.Error("moonshine transcription failed", "file", filePath, "error", err)
+		slog.Error("on-device transcription failed", "file", filePath, "error", err)
+	} else {
+		transcript = text
 	}
+
 	s.save(filePath, transcript, moonshineResponse, duration)
-	slog.Info("transcribed via moonshine fallback", "file", filePath)
+	slog.Info("transcribed on device", "file", filePath)
 }
 
 func (s *Service) save(filePath, transcript, raw string, duration *float64) {

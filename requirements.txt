@@ -1,4 +1,0 @@
-# The server is Go; this file covers only the Moonshine transcription sidecar
-# (scripts/moonshine_transcribe.py), which the Go binary shells out to when
-# Deepgram is unavailable. Install it into ./venv — see setup.sh.
-moonshine-voice>=0.0.52
