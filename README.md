@@ -17,21 +17,19 @@ This project provides a complete solution for monitoring digital radio communica
 
 - RTL-SDR compatible hardware
 - `dsd-fme` for digital signal decoding
-- Python 3.x
-- Dependencies listed in `requirements.txt`
+- Go 1.22 or newer (to build; the result is a single static binary)
+- Python 3 — only for the optional Moonshine transcription fallback
 
 ## Installation
 
 1. Install system dependencies (dsd-fme and RTL-SDR drivers)
-2. Set up the virtual environment:
+2. Build the server and set up the Moonshine fallback:
    ```bash
-   source setup.sh
+   ./setup.sh
    ```
-3. Install Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Create and configure your `config.yaml`:
+   This produces `./radiobot` and a `venv` holding `moonshine-voice`. Pass
+   `--no-python` to skip the fallback and rely on Deepgram alone.
+3. Create and configure your `config.yaml`:
 
    ```bash
    cp config.yaml.example config.yaml
@@ -43,7 +41,7 @@ This project provides a complete solution for monitoring digital radio communica
    - Add your Deepgram API key
    - Optionally configure notifications and unit mappings
 
-5. To enable auto restart. Run the following command:
+4. To enable auto restart. Run the following command:
 
 ```bash
 echo "ubuntu ALL=(ALL) NOPASSWD: /sbin/reboot" | sudo tee etc/sudoers.d/radiobot-reboot
@@ -275,14 +273,60 @@ notifications:
 Start the server:
 
 ```bash
-python server.py
+./radiobot
 ```
 
-Access the web interface at `http://localhost:4000`
+Access the web interface at `http://localhost:4000`. Use `-addr` to listen
+somewhere else, and `-config` to point at a different config file.
+
+To transcribe and file a single WAV from an external script:
+
+```bash
+./radiobot ingest /path/to/recording.wav
+```
+
+### Building for the Raspberry Pi
+
+The binary has no cgo dependencies, so it cross-compiles from any machine:
+
+```bash
+GOOS=linux GOARCH=arm64 go build -o radiobot ./cmd/radiobot   # Pi 4/5, 64-bit
+GOOS=linux GOARCH=arm   go build -o radiobot ./cmd/radiobot   # 32-bit
+```
+
+Copy the binary, `config.yaml`, `scripts/`, and (if you want the Moonshine
+fallback) the `venv` to the device. Templates are embedded in the binary.
+
+## Architecture
+
+```
+cmd/radiobot        entry point: wiring and graceful shutdown
+internal/config     config.yaml loading, validation, versioned migrations
+internal/db         SQLite store (transcripts, restarts, backup bookkeeping)
+internal/radio      dsd-fme process supervision and the watchdog
+internal/organizer  watches temp/, files recordings under files/YYYYMMDD/
+internal/processor  the recording pipeline: transcribe, store, broadcast, alert
+internal/transcribe Deepgram client and the Moonshine fallback state machine
+internal/notify     GroupMe and Discord keyword alerts
+internal/backup     S3 backup via presigned URLs
+internal/hub        WebSocket fan-out for live dashboard updates
+internal/web        HTTP handlers and embedded templates
+scripts/            the Moonshine Python sidecar
+```
+
+### Transcription
+
+Deepgram is the primary engine. If it fails three times in a row, the server
+switches to Moonshine, an on-device model that runs through
+`scripts/moonshine_transcribe.py`, and probes Deepgram every five minutes until
+it recovers. The current engine is shown on the status page.
+
+The sidecar runs under `venv/bin/python3` if that exists, otherwise `python3`.
+Set `RADIOBOT_PYTHON` to point at a specific interpreter.
 
 ## S3 Backup (Optional)
 
-Continuously backs up all recordings and a daily gzipped snapshot of `transcripts.db` to S3. The device never holds AWS credentials — it holds a shared secret and asks a small Lambda for presigned, size-bound upload URLs. The Lambda enforces a daily upload quota (count and bytes) in DynamoDB, so a leaked secret can at worst upload up to the quota until you rotate it; it can never read, list, or delete anything. Backup failures never affect radio capture: uploads run in a background thread and are retried on the next scan.
+Continuously backs up all recordings and a daily gzipped snapshot of `transcripts.db` to S3. The device never holds AWS credentials — it holds a shared secret and asks a small Lambda for presigned, size-bound upload URLs. The Lambda enforces a daily upload quota (count and bytes) in DynamoDB, so a leaked secret can at worst upload up to the quota until you rotate it; it can never read, list, or delete anything. Backup failures never affect radio capture: uploads run in a background goroutine and are retried on the next scan.
 
 ### Provisioning (once, from any machine with AWS access)
 

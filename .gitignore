@@ -23,3 +23,6 @@ infra/build/
 infra/terraform.tfvars
 infra/tfplan
 infra/backend.hcl
+
+# Go build output
+/radiobot

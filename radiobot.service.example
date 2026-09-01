@@ -5,7 +5,7 @@ After=network.target
 [Service]
 User=ubuntu
 WorkingDirectory=/home/ubuntu/RadioBot
-ExecStart=/home/ubuntu/RadioBot/venv/bin/gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:4000 server:app
+ExecStart=/home/ubuntu/RadioBot/radiobot -addr :4000
 Restart=always
 RestartSec=10
 

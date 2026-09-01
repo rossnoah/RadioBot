@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ .Branding }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-blue-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <a
+      href="/status"
+      class="fixed top-4 left-4 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold transition-colors text-sm"
+    >
+      Status
+    </a>
+    <a
+      href="/search"
+      class="fixed top-4 right-4 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold transition-colors text-sm"
+    >
+      Search Transcripts
+    </a>
+    <div class="container mx-auto p-4 min-h-screen flex flex-col items-center justify-center gap-6">
+
+      <!-- Radio Status Card -->
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full max-w-md">
+        <h2 class="text-xl font-bold mb-4 text-center text-gray-700 dark:text-gray-300">Radio Status</h2>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Status</span>
+          {{ if .Radio.Running }}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+              <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              Running
+            </span>
+          {{ else }}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300">
+              <span class="w-2 h-2 rounded-full bg-red-500"></span>
+              Stopped
+            </span>
+          {{ end }}
+        </div>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Frequency</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Radio.Frequency }} MHz</span>
+        </div>
+        {{ if .Radio.Running }}
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Uptime</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {{ if .Radio.Uptime }}{{ .Radio.Uptime }}{{ else }}--{{ end }}
+          </span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Message</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {{ if .Radio.LastMessage }}{{ .Radio.LastMessage }}{{ else }}No messages yet{{ end }}
+          </span>
+        </div>
+        {{ end }}
+        <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Transcription</span>
+          {{ if .Transcription.Deepgram }}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+              Deepgram
+            </span>
+          {{ else }}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300">
+              Moonshine (fallback)
+            </span>
+          {{ end }}
+        </div>
+      </div>
+
+      <!-- Recording Dates Card -->
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full max-w-md">
+        <h1 class="text-2xl font-bold mb-4 text-center text-indigo-600 dark:text-indigo-400">
+          Recordings
+        </h1>
+        <div class="flex flex-col gap-3 mb-5">
+          {{ range .RecentDays }}
+          <a href="/files/{{ .Key }}"
+             class="block w-full text-center p-4 rounded-lg shadow-sm font-semibold transition-colors duration-300
+               {{ if .Available }}
+                 bg-indigo-50 dark:bg-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500 text-indigo-600 dark:text-indigo-300
+               {{ else }}
+                 bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500 pointer-events-none
+               {{ end }}">
+            {{ .Label }}
+          </a>
+          {{ end }}
+        </div>
+        {{ range .Months }}
+        <details {{ if .Open }}open{{ end }}
+          class="border-b border-gray-100 dark:border-gray-700 last:border-0 mb-1">
+          <summary class="cursor-pointer py-2 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            {{ .Label }}
+          </summary>
+          <div class="pb-3">
+            <div class="grid grid-cols-7 gap-1 text-center mb-1">
+              {{ range .Weekdays }}
+              <span class="text-xs text-gray-400 dark:text-gray-500 font-medium">{{ . }}</span>
+              {{ end }}
+            </div>
+            {{ range .Weeks }}
+            <div class="grid grid-cols-7 gap-1 text-center">
+              {{ range . }}
+                {{ if .Empty }}
+                  <span></span>
+                {{ else if .Available }}
+                  <a href="/files/{{ .Key }}"
+                     class="block py-1 rounded-md text-sm font-semibold bg-indigo-100 dark:bg-indigo-600 text-indigo-700 dark:text-indigo-200 hover:bg-indigo-200 dark:hover:bg-indigo-500 transition-colors">
+                    {{ .Day }}
+                  </a>
+                {{ else }}
+                  <span class="py-1 text-sm text-gray-300 dark:text-gray-600">{{ .Day }}</span>
+                {{ end }}
+              {{ end }}
+            </div>
+            {{ end }}
+          </div>
+        </details>
+        {{ end }}
+      </div>
+
+    </div>
+  </body>
+</html>
