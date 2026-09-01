@@ -57,6 +57,15 @@ radio:
   # Default: 0 (no correction)
   ppm: 0
 
+  # How long dsd-fme may go without writing to dsd-fme.jsonl before the
+  # supervisor presumes it wedged and restarts it
+  # OPTIONAL: Default: 300 (five minutes). Set to 0 to disable the check.
+  #
+  # This measures whether dsd-fme's loop is running, not whether RF is
+  # reaching it. If your dsd-fme goes quiet on an idle channel, turn the check
+  # off rather than let it restart a healthy receiver.
+  # frozen_timeout_seconds: 300
+
 # ============================================================================
 # API KEYS AND CREDENTIALS
 # ============================================================================

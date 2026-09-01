@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,17 +22,16 @@ const (
 	logMaxSize     = 100 * 1024 * 1024 // rotate past 100MB
 	logBackupCount = 2                 // keep 2 old log files
 
-	// Watchdog settings.
-	frozenCheckInterval    = 30 * time.Second // how often to check process health
-	frozenTimeout          = 30 * time.Minute // no log output for this long means frozen
-	maxCrashesBeforeReboot = 3                // reboot after this many crashes in the window
-	crashWindow            = 5 * time.Minute  // window for counting crashes
-	stoppedRebootAfter     = 2 * time.Minute  // reboot if stuck in stopped state this long
-
-	// RTL-SDR USB vendor ID (Realtek). Used to detect a dead USB controller —
-	// on a Raspberry Pi 5 the only recovery is a reboot.
+	// RTL-SDR USB vendor ID (Realtek). Its absence from the bus is what
+	// distinguishes "restart dsd-fme" from "the hardware is gone".
 	rtlSDRUSBVendorID = "0bda"
+)
 
+// dsdFMEBinary is the decoder this supervises. It is a variable so tests can
+// substitute a stand-in that crashes or hangs on demand.
+var dsdFMEBinary = "dsd-fme"
+
+const (
 	tempDir = "temp"
 )
 
@@ -56,23 +54,33 @@ type Manager struct {
 	cfg   config.Radio
 	store Store
 
-	mu           sync.Mutex
-	cmd          *exec.Cmd
-	logFile      *os.File
-	exited       chan struct{} // closed when the current process is reaped
-	lastStart    time.Time
-	lastMessage  time.Time
-	stoppedSince time.Time
-	crashTimes   []time.Time
+	// frozenTimeout is how long dsd-fme may go without writing to its log
+	// before it is presumed wedged. Zero disables the check.
+	frozenTimeout time.Duration
 
-	watchdogStop    chan struct{}
-	watchdogDone    chan struct{}
-	watchdogRunning bool
+	mu          sync.Mutex
+	cmd         *exec.Cmd
+	logFile     *os.File
+	exited      chan struct{} // closed when the current process is reaped
+	lastStart   time.Time
+	lastMessage time.Time
+
+	// lastBeat is when the supervisor last completed a health check. It is
+	// what the systemd watchdog ping is derived from, so a wedged supervisor
+	// stops the pings and gets the service restarted.
+	lastBeat time.Time
 }
 
 // New builds a manager for the given radio configuration.
 func New(cfg config.Radio, store Store) *Manager {
-	return &Manager{cfg: cfg, store: store}
+	return &Manager{
+		cfg:           cfg,
+		store:         store,
+		frozenTimeout: cfg.FrozenTimeout(),
+		// Seeded so the service is not judged wedged before the supervisor
+		// has run its first cycle.
+		lastBeat: time.Now(),
+	}
 }
 
 // buildCommand assembles the dsd-fme invocation from configuration.
@@ -82,7 +90,7 @@ func (m *Manager) buildCommand() []string {
 		m.cfg.DeviceIndex, m.cfg.FrequencyString(), *m.cfg.Gain, m.cfg.PPM)
 
 	return []string{
-		"dsd-fme",
+		dsdFMEBinary,
 		"-fs", // DMR Stereo mode
 		"-i", rtlInput,
 		"-P", "-7", "./" + tempDir, // per-call wav files output directory
@@ -94,8 +102,10 @@ func (m *Manager) buildCommand() []string {
 	}
 }
 
-// Start launches the radio process and its watchdog.
-func (m *Manager) Start() error {
+// start launches the radio process. The supervisor owns the lifecycle, so
+// this is deliberately not exported: nothing outside should start a second
+// receiver behind the supervisor's back.
+func (m *Manager) start() error {
 	if m.IsRunning() {
 		slog.Warn("radio process is already running")
 		return nil
@@ -139,7 +149,7 @@ func (m *Manager) Start() error {
 	}()
 
 	// Give it a moment to fail fast on a bad device or busy USB.
-	time.Sleep(time.Second)
+	time.Sleep(startSettleDelay)
 	select {
 	case <-exited:
 		slog.Error("radio process failed to start; check dsd-fme.jsonl for details",
@@ -154,7 +164,6 @@ func (m *Manager) Start() error {
 	m.logFile = logFile
 	m.exited = exited
 	m.lastStart = time.Now()
-	m.stoppedSince = time.Time{} // clear stopped timer on successful start
 	pid := cmd.Process.Pid
 	m.mu.Unlock()
 
@@ -166,25 +175,19 @@ func (m *Manager) Start() error {
 	slog.Info("radio process started", "pid", pid,
 		"frequency_mhz", m.cfg.FrequencyString(), "gain", *m.cfg.Gain)
 	slog.Info("radio output paths", "log", LogFile, "recordings", tempDir+"/")
-
-	m.startWatchdog()
 	return nil
 }
 
-// Stop terminates the radio process. stopWatchdog is false when the watchdog
-// itself is driving the restart, since it cannot wait on its own goroutine.
-func (m *Manager) Stop(stopWatchdog bool) error {
-	if stopWatchdog {
-		m.stopWatchdog()
-	}
-
+// stop terminates the radio process and its process group. It is safe to call
+// when nothing is running.
+func (m *Manager) stop() {
 	m.mu.Lock()
-	cmd, logFile, exited := m.cmd, m.logFile, m.exited
+	cmd, exited := m.cmd, m.exited
 	m.mu.Unlock()
 
 	if cmd == nil || cmd.Process == nil || isClosed(exited) {
-		slog.Warn("radio process is not running")
-		return nil
+		m.clearProcess()
+		return
 	}
 
 	pid := cmd.Process.Pid
@@ -208,29 +211,24 @@ func (m *Manager) Stop(stopWatchdog bool) error {
 		slog.Info("radio process force killed")
 	}
 
+	m.clearProcess()
+}
+
+// clearProcess releases the handles for a process that is no longer running.
+func (m *Manager) clearProcess() {
 	m.mu.Lock()
-	if logFile != nil {
-		logFile.Close()
+	if m.logFile != nil {
+		m.logFile.Close()
+		m.logFile = nil
 	}
 	m.cmd = nil
-	m.logFile = nil
+	m.exited = nil
 	m.lastStart = time.Time{}
 	m.mu.Unlock()
 
 	if err := os.Remove(PIDFile); err != nil && !os.IsNotExist(err) {
 		slog.Warn("could not remove PID file", "error", err)
 	}
-	return nil
-}
-
-// Restart stops and starts the radio process.
-func (m *Manager) Restart() error {
-	slog.Info("restarting radio process")
-	if err := m.Stop(true); err != nil {
-		return err
-	}
-	time.Sleep(time.Second)
-	return m.Start()
 }
 
 // IsRunning reports whether the radio process is alive.
@@ -315,37 +313,6 @@ func isDSDFME(pid int) bool {
 		return false
 	}
 	return strings.Contains(string(cmdline), "dsd-fme")
-}
-
-// rtlSDRPresent reports whether an RTL-SDR device is visible on the USB bus.
-// When the check cannot run (no sysfs, e.g. not Linux) it assumes present, so
-// an unrelated failure never triggers a reboot.
-func rtlSDRPresent() bool {
-	const usbDevices = "/sys/bus/usb/devices"
-	entries, err := os.ReadDir(usbDevices)
-	if err != nil {
-		return true
-	}
-	for _, entry := range entries {
-		vendor, err := os.ReadFile(filepath.Join(usbDevices, entry.Name(), "idVendor"))
-		if err != nil {
-			continue
-		}
-		if strings.TrimSpace(string(vendor)) == rtlSDRUSBVendorID {
-			return true
-		}
-	}
-	return false
-}
-
-// reboot restarts the machine to recover from a dead USB controller.
-func reboot(reason string) {
-	slog.Error("REBOOTING SYSTEM: USB controller has likely died and cannot recover without a reboot",
-		"reason", reason)
-	time.Sleep(2 * time.Second) // let logs flush
-	if err := exec.Command("sudo", "reboot").Run(); err != nil {
-		slog.Error("failed to reboot; manual intervention required", "error", err)
-	}
 }
 
 func isClosed(ch chan struct{}) bool {

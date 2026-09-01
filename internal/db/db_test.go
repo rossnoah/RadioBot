@@ -27,9 +27,9 @@ func TestDateFromFilename(t *testing.T) {
 	}{
 		{"files/20260408/20260408_123456_1_SRC_1.wav", "20260408"},
 		{`files\20260408\20260408_123456_1_SRC_1.wav`, "20260408"},
-		{"20260408_123456_1.wav", ""},   // no folder component
+		{"20260408_123456_1.wav", ""}, // no folder component
 		{"files/notadate/x.wav", ""},
-		{"files/2026040/x.wav", ""},     // wrong length
+		{"files/2026040/x.wav", ""}, // wrong length
 	}
 	for _, tt := range tests {
 		if got := DateFromFilename(tt.filename); got != tt.want {
@@ -335,5 +335,80 @@ func TestSnapshotTo(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Transcript != "snapshot me" {
 		t.Errorf("snapshot contents = %v", rows)
+	}
+}
+
+// TestEscalationHistory is what stops a reboot loop: the record has to
+// outlive both the process and the reboot systemd may perform.
+func TestEscalationHistory(t *testing.T) {
+	store := openTestDB(t)
+
+	if count, err := store.EscalationsSince(time.Now().Add(-time.Hour)); err != nil || count != 0 {
+		t.Fatalf("fresh database reported %d escalations (err %v)", count, err)
+	}
+
+	if err := store.RecordEscalation("process exited"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordEscalation("the RTL-SDR is no longer on the USB bus"); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := store.EscalationsSince(time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("counted %d escalations in the window, want 2", count)
+	}
+
+	// A window that starts after both records must count neither.
+	count, err = store.EscalationsSince(time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("counted %d escalations in a future window, want 0", count)
+	}
+
+	// Newest first, for the dashboard.
+	recent, err := store.Escalations(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 2 {
+		t.Fatalf("listed %d escalations, want 2", len(recent))
+	}
+	if recent[0].Reason != "the RTL-SDR is no longer on the USB bus" {
+		t.Errorf("first escalation = %q, want the newest", recent[0].Reason)
+	}
+}
+
+// TestEscalationHistorySurvivesReopen is the property the whole design leans
+// on — systemd's start counter resets on boot, this must not.
+func TestEscalationHistorySurvivesReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "persist.db")
+
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordEscalation("process exited"); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+
+	count, err := reopened.EscalationsSince(time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("counted %d escalations after reopening, want 1", count)
 	}
 }

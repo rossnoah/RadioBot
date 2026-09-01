@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -31,6 +32,23 @@ type Radio struct {
 	Gain        *int    `yaml:"gain"`
 	DeviceIndex int     `yaml:"device_index"`
 	PPM         int     `yaml:"ppm"`
+
+	// FrozenTimeoutSeconds is how long dsd-fme may go without writing to its
+	// log before the supervisor presumes it wedged and restarts it. Set it to
+	// 0 to switch the check off, which is the right move if dsd-fme goes quiet
+	// on an idle channel. Unset means DefaultFrozenTimeout.
+	FrozenTimeoutSeconds *int `yaml:"frozen_timeout_seconds"`
+}
+
+// DefaultFrozenTimeout is used when radio.frozen_timeout_seconds is unset.
+const DefaultFrozenTimeout = 5 * time.Minute
+
+// FrozenTimeout is the configured wedge threshold, or zero when disabled.
+func (r Radio) FrozenTimeout() time.Duration {
+	if r.FrozenTimeoutSeconds == nil {
+		return DefaultFrozenTimeout
+	}
+	return time.Duration(*r.FrozenTimeoutSeconds) * time.Second
 }
 
 type APIs struct {

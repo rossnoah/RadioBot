@@ -2,12 +2,35 @@
 Description=RadioBot Server
 After=network.target
 
+# The escalation ladder above radiobot itself.
+#
+# radiobot restarts dsd-fme on its own, with backoff. When it cannot keep it
+# running it exits non-zero, and these settings decide what happens next:
+# systemd restarts the whole service (a fresh process gets a fresh libusb
+# context, which sometimes fixes what a child restart cannot), and if that
+# stops helping, it reboots.
+#
+# radiobot keeps its own persistent record of these handoffs, because the
+# counter below resets on boot. Once there have been too many, it stops
+# escalating and stays up in a degraded state — serving the dashboard and
+# reporting itself over GroupMe/Discord — rather than reboot-looping until
+# someone drives out to the device.
+StartLimitIntervalSec=1h
+StartLimitBurst=5
+StartLimitAction=reboot
+
 [Service]
+Type=notify
 User=ubuntu
 WorkingDirectory=/home/ubuntu/RadioBot
 ExecStart=/home/ubuntu/RadioBot/radiobot -addr :4000
 Restart=always
-RestartSec=10
+RestartSec=30
+
+# radiobot pings systemd only while its radio supervisor is still cycling, so
+# a wedged process stops the pings and gets restarted. This catches the one
+# failure no amount of in-process logic can catch itself.
+WatchdogSec=120
 
 [Install]
 WantedBy=multi-user.target

@@ -11,17 +11,20 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/rossnoah/radiobot/internal/backup"
 	"github.com/rossnoah/radiobot/internal/config"
 	"github.com/rossnoah/radiobot/internal/db"
+	"github.com/rossnoah/radiobot/internal/escalation"
 	"github.com/rossnoah/radiobot/internal/hub"
 	"github.com/rossnoah/radiobot/internal/notify"
 	"github.com/rossnoah/radiobot/internal/organizer"
 	"github.com/rossnoah/radiobot/internal/processor"
 	"github.com/rossnoah/radiobot/internal/radio"
+	"github.com/rossnoah/radiobot/internal/systemd"
 	"github.com/rossnoah/radiobot/internal/transcribe"
 	"github.com/rossnoah/radiobot/internal/web"
 )
@@ -135,6 +138,9 @@ func runServer(addr string, cfg *config.Config, store *db.DB) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	sd := systemd.Connect()
+	defer sd.Close()
+
 	events := hub.New()
 	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, store)
 	notifier := notify.New(cfg.Notifications)
@@ -151,18 +157,23 @@ func runServer(addr string, cfg *config.Config, store *db.DB) error {
 	// no-op on a nil service.
 	go backup.New(cfg.Backup, store).Run(ctx)
 
-	// A receiver that will not start is not fatal: the dashboard still serves
-	// everything already recorded.
-	if err := radioManager.Start(); err != nil {
-		slog.Error("failed to start radio process", "error", err)
-		slog.Error("server will continue without radio monitoring; check your configuration and dsd-fme installation")
-	} else {
-		status := radioManager.Status()
-		slog.Info("radio monitoring started",
-			"frequency_mhz", status.Config.FrequencyString(), "gain", *status.Config.Gain)
-	}
+	// Escalating means exiting non-zero so systemd restarts the whole service,
+	// which clears state an in-process restart cannot. The policy refuses to
+	// escalate once it has done so too often, so a fault that survives a
+	// restart or a reboot cannot turn into a loop.
+	escalating := make(chan struct{})
+	var giveUpOnce sync.Once
+	policy := escalation.New(store, notifier, func() {
+		giveUpOnce.Do(func() { close(escalating) })
+	})
 
-	server := web.New(cfg, store, radioManager, transcriber, proc, recordFolder, events)
+	supervisorDone := make(chan struct{})
+	go func() {
+		defer close(supervisorDone)
+		radioManager.Supervise(ctx, policy)
+	}()
+
+	server := web.New(cfg, store, radioManager, transcriber, proc, recordFolder, events, policy)
 	defer server.Close()
 
 	httpServer := &http.Server{
@@ -180,14 +191,26 @@ func runServer(addr string, cfg *config.Config, store *db.DB) error {
 		close(serverErr)
 	}()
 
+	sd.Ready()
+	sd.Status("serving on %s", addr)
+	go pingWatchdog(ctx, sd, radioManager)
+
+	var exitErr error
 	select {
 	case err := <-serverErr:
 		if err != nil {
-			return fmt.Errorf("web server: %w", err)
+			exitErr = fmt.Errorf("web server: %w", err)
 		}
+	case <-escalating:
+		// The escalation policy has already logged and alerted; exiting is
+		// the handoff to systemd.
+		exitErr = errors.New("radio unrecoverable in-process, restarting the service")
 	case <-ctx.Done():
 		slog.Info("shutting down")
 	}
+
+	sd.Stopping()
+	stop() // stop the background services before tearing down the server
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -196,8 +219,40 @@ func runServer(addr string, cfg *config.Config, store *db.DB) error {
 	}
 
 	slog.Info("stopping radio process")
-	if err := radioManager.Stop(true); err != nil {
-		slog.Error("error stopping radio process during cleanup", "error", err)
+	select {
+	case <-supervisorDone:
+	case <-time.After(15 * time.Second):
+		slog.Error("radio supervisor did not stop within 15s")
 	}
-	return nil
+	return exitErr
+}
+
+// pingWatchdog tells systemd the service is alive, but only while the radio
+// supervisor is still cycling. If that goroutine wedges, the pings stop and
+// systemd restarts the service — which is the whole point of WatchdogSec, and
+// the one failure no amount of in-process logic can catch itself.
+func pingWatchdog(ctx context.Context, sd *systemd.Notifier, manager *radio.Manager) {
+	if !sd.WatchdogEnabled() {
+		return
+	}
+	// Allow several supervisor cycles to be missed before declaring it stuck,
+	// so ordinary scheduling jitter never trips the watchdog.
+	staleAfter := 4 * radio.HeartbeatInterval()
+
+	ticker := time.NewTicker(sd.WatchdogInterval())
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if idle := time.Since(manager.Heartbeat()); idle > staleAfter {
+				slog.Error("radio supervisor has stalled; withholding the systemd watchdog ping",
+					"idle", idle.Round(time.Second))
+				continue
+			}
+			sd.Alive()
+		}
+	}
 }

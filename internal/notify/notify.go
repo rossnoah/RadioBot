@@ -29,6 +29,18 @@ func New(cfg config.Notifications) *Notifier {
 	return &Notifier{cfg: cfg, client: &http.Client{Timeout: timeout}}
 }
 
+// Alert sends an operational message to every enabled service, bypassing the
+// keyword lists. It is for the device reporting on itself — "I have given up
+// on the radio" — rather than for anything heard over the air.
+func (n *Notifier) Alert(message string) {
+	if n.cfg.GroupMe.Enabled {
+		n.sendGroupMe(message, "")
+	}
+	if n.cfg.Discord.Enabled {
+		n.sendDiscord(message, "")
+	}
+}
+
 // Check evaluates a transcript and sends notifications if it triggers an alert.
 func (n *Notifier) Check(message, unitName string) {
 	standard := n.cfg.Wordlists.Standard.Words
@@ -108,7 +120,12 @@ func (n *Notifier) sendDiscord(message, unitName string) {
 	slog.Info("Discord notification sent", "unit", unitName)
 }
 
+// formatMessage appends the transmitting unit. An empty unit means the message
+// came from the device itself, not from the air, so there is nothing to append.
 func formatMessage(message, unitName string) string {
+	if unitName == "" {
+		return message
+	}
 	return message + "\n\n[From: " + unitName + "]"
 }
 

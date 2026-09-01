@@ -193,3 +193,42 @@ func TestGroupMePostsBotID(t *testing.T) {
 		t.Errorf("text = %q", got)
 	}
 }
+
+// TestAlertBypassesWordlists covers the device reporting on itself: an
+// operational message must go out whatever the keyword configuration says.
+func TestAlertBypassesWordlists(t *testing.T) {
+	captured := &capture{}
+	server := httptest.NewServer(http.HandlerFunc(captured.handler))
+	defer server.Close()
+
+	cfg := config.Notifications{
+		Discord: config.Discord{Enabled: true, WebhookURL: server.URL},
+	}
+	// Deliberately empty: nothing here would ever match.
+	cfg.Wordlists.Standard.Words = nil
+
+	New(cfg).Alert("RadioBot has given up on the radio.")
+
+	if captured.count() != 1 {
+		t.Fatalf("posted %d times, want 1", captured.count())
+	}
+	got := captured.bodies[0]["content"]
+	if got != "RadioBot has given up on the radio." {
+		t.Errorf("content = %q, want the bare message with no unit suffix", got)
+	}
+}
+
+func TestAlertSkipsDisabledServices(t *testing.T) {
+	captured := &capture{}
+	server := httptest.NewServer(http.HandlerFunc(captured.handler))
+	defer server.Close()
+
+	cfg := config.Notifications{
+		Discord: config.Discord{Enabled: false, WebhookURL: server.URL},
+	}
+	New(cfg).Alert("nobody should hear this")
+
+	if captured.count() != 0 {
+		t.Errorf("posted %d times with every service disabled, want 0", captured.count())
+	}
+}

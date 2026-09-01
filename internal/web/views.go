@@ -92,8 +92,16 @@ type restartRow struct {
 	UpFor     string
 }
 
+// degradedView is the banner shown once the device has stopped trying to
+// recover the radio. It is the thing an operator is sent to look at.
+type degradedView struct {
+	Reason string
+	Since  string
+}
+
 type statusView struct {
 	Branding        string
+	Degraded        *degradedView
 	Radio           radioView
 	Transcription   transcriptionView
 	TotalRecordings int

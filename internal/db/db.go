@@ -39,6 +39,13 @@ type Transcript struct {
 	Date       sql.NullString
 }
 
+// Escalation is one row of the escalations table.
+type Escalation struct {
+	ID        int64
+	Timestamp string
+	Reason    string
+}
+
 // Restart is one row of the restarts table.
 type Restart struct {
 	ID            int64
@@ -90,6 +97,15 @@ func (d *DB) init() error {
 			path TEXT PRIMARY KEY,
 			size INTEGER,
 			uploaded_at TEXT NOT NULL
+		)`,
+		// Escalations are the record of radiobot giving up on the radio and
+		// handing the problem to systemd. They must outlive the process — and
+		// the reboot systemd may perform — because their only purpose is to
+		// detect that the escalation did not help.
+		`CREATE TABLE IF NOT EXISTS escalations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			timestamp TEXT NOT NULL,
+			reason TEXT NOT NULL
 		)`,
 	}
 	for _, stmt := range stmts {
@@ -456,6 +472,46 @@ func (d *DB) LastMarkerTime(marker string) time.Time {
 		return time.Time{}
 	}
 	return parsed
+}
+
+// RecordEscalation notes that the radio was handed off to systemd.
+func (d *DB) RecordEscalation(reason string) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO escalations (timestamp, reason) VALUES (?, ?)`,
+		time.Now().Format(timeLayout), reason,
+	)
+	return err
+}
+
+// EscalationsSince counts escalations recorded at or after the given time.
+// A high count means restarting and rebooting are not fixing the problem.
+func (d *DB) EscalationsSince(since time.Time) (int, error) {
+	var count int
+	err := d.sql.QueryRow(
+		`SELECT COUNT(*) FROM escalations WHERE timestamp >= ?`,
+		since.Format(timeLayout),
+	).Scan(&count)
+	return count, err
+}
+
+// Escalations returns recent escalations, newest first, for the status page.
+func (d *DB) Escalations(limit int) ([]Escalation, error) {
+	rows, err := d.sql.Query(
+		`SELECT id, timestamp, reason FROM escalations ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Escalation
+	for rows.Next() {
+		var e Escalation
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Reason); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // SnapshotTo writes a consistent copy of the database to path. VACUUM INTO

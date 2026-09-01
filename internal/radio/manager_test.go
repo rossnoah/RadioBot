@@ -23,6 +23,34 @@ func (f *fakeStore) LogRestart(reason string, uptimeSeconds *int) error {
 	return nil
 }
 
+func (f *fakeStore) restartCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.restarts)
+}
+
+func (f *fakeStore) restartReasons() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.restarts...)
+}
+
+// inTempDir runs the test in a scratch working directory, since the manager
+// resolves the log and PID files relative to it.
+func inTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(original) })
+	return dir
+}
+
 func testRadioConfig() config.Radio {
 	gain := 32
 	return config.Radio{Frequency: 461.375, Gain: &gain, DeviceIndex: 0, PPM: 0}
@@ -109,83 +137,62 @@ func TestRecordMessageUpdatesStatus(t *testing.T) {
 	}
 }
 
-// TestRecordCrashSlidingWindow covers the reboot threshold: only failures
-// inside the window count.
-func TestRecordCrashSlidingWindow(t *testing.T) {
-	manager := New(testRadioConfig(), &fakeStore{})
-
-	for i := 1; i < maxCrashesBeforeReboot; i++ {
-		count, tooMany := manager.recordCrash()
-		if count != i {
-			t.Errorf("crash %d counted as %d", i, count)
-		}
-		if tooMany {
-			t.Fatalf("reboot threshold hit early at crash %d", i)
-		}
-	}
-
-	count, tooMany := manager.recordCrash()
-	if count != maxCrashesBeforeReboot || !tooMany {
-		t.Errorf("crash %d: count=%d tooMany=%v, want the threshold to trip", maxCrashesBeforeReboot, count, tooMany)
-	}
-
-	// Age every recorded crash out of the window; the count resets.
-	manager.mu.Lock()
-	for i := range manager.crashTimes {
-		manager.crashTimes[i] = time.Now().Add(-2 * crashWindow)
-	}
-	manager.mu.Unlock()
-
-	if count, tooMany := manager.recordCrash(); count != 1 || tooMany {
-		t.Errorf("after the window elapsed: count=%d tooMany=%v, want 1/false", count, tooMany)
-	}
-}
-
-func TestIsProcessFrozen(t *testing.T) {
-	dir := t.TempDir()
-	original, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(original)
+func TestIdleFor(t *testing.T) {
+	inTempDir(t)
 
 	manager := New(testRadioConfig(), &fakeStore{})
+	timeout := manager.frozenTimeout
+	if timeout <= 0 {
+		t.Fatal("the test config should have a frozen timeout")
+	}
 
 	// No log file yet: not frozen, and not an error.
-	if manager.isProcessFrozen() {
+	if _, frozen := manager.idleFor(); frozen {
 		t.Error("a missing log file was reported as frozen")
 	}
 
 	if err := os.WriteFile(LogFile, []byte("recent output\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if manager.isProcessFrozen() {
+	if _, frozen := manager.idleFor(); frozen {
 		t.Error("a freshly written log was reported as frozen")
 	}
 
-	stale := time.Now().Add(-2 * frozenTimeout)
+	stale := time.Now().Add(-2 * timeout)
 	if err := os.Chtimes(LogFile, stale, stale); err != nil {
 		t.Fatal(err)
 	}
-	if !manager.isProcessFrozen() {
+	if _, frozen := manager.idleFor(); !frozen {
 		t.Error("a log idle for twice the timeout was not reported as frozen")
 	}
 }
 
-// TestRotateLogIfNeeded checks the size threshold and the .1/.2 shuffle.
-func TestRotateLogIfNeeded(t *testing.T) {
-	dir := t.TempDir()
-	original, err := os.Getwd()
-	if err != nil {
+// TestIdleForDisabled covers frozen_timeout_seconds: 0, which switches the
+// check off for setups where dsd-fme goes quiet on an idle channel.
+func TestIdleForDisabled(t *testing.T) {
+	inTempDir(t)
+
+	cfg := testRadioConfig()
+	disabled := 0
+	cfg.FrozenTimeoutSeconds = &disabled
+	manager := New(cfg, &fakeStore{})
+
+	if err := os.WriteFile(LogFile, []byte("old output\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(dir); err != nil {
+	stale := time.Now().Add(-24 * time.Hour)
+	if err := os.Chtimes(LogFile, stale, stale); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(original)
+
+	if _, frozen := manager.idleFor(); frozen {
+		t.Error("the frozen check fired even though it is disabled")
+	}
+}
+
+// TestRotateLog checks the size threshold and the .1/.2 shuffle.
+func TestRotateLog(t *testing.T) {
+	inTempDir(t)
 
 	manager := New(testRadioConfig(), &fakeStore{})
 
@@ -193,12 +200,11 @@ func TestRotateLogIfNeeded(t *testing.T) {
 	if err := os.WriteFile(LogFile, []byte("small"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if manager.rotateLogIfNeeded() {
-		t.Error("rotated a log that is under the size limit")
+	if manager.logNeedsRotation() {
+		t.Error("a log under the size limit was marked for rotation")
 	}
 
-	// Over the limit. The manager has no process, so the restart it triggers
-	// is a no-op; what matters is the files moving.
+	// Over the limit.
 	oversized, err := os.Create(LogFile)
 	if err != nil {
 		t.Fatal(err)
@@ -212,13 +218,14 @@ func TestRotateLogIfNeeded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !manager.rotateLogIfNeeded() {
-		t.Fatal("an oversized log was not rotated")
+	if !manager.logNeedsRotation() {
+		t.Fatal("an oversized log was not marked for rotation")
 	}
-	// The restart reopens the log, so what should be left behind is an empty
-	// file rather than no file at all.
-	if info, err := os.Stat(LogFile); err == nil && info.Size() != 0 {
-		t.Errorf("the current log was not moved aside (size %d)", info.Size())
+	if err := manager.rotateLog(); err != nil {
+		t.Fatalf("rotateLog: %v", err)
+	}
+	if _, err := os.Stat(LogFile); !os.IsNotExist(err) {
+		t.Error("the current log was not moved aside")
 	}
 	if info, err := os.Stat(LogFile + ".1"); err != nil || info.Size() <= logMaxSize {
 		t.Error("the oversized log did not become .1")
@@ -232,15 +239,7 @@ func TestRotateLogIfNeeded(t *testing.T) {
 // TestKillOrphansRemovesStalePIDFile covers startup cleanup when the recorded
 // PID no longer belongs to dsd-fme.
 func TestKillOrphansRemovesStalePIDFile(t *testing.T) {
-	dir := t.TempDir()
-	original, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(original)
+	dir := inTempDir(t)
 
 	// This process is certainly not dsd-fme, so it must not be signalled —
 	// only the stale PID file should be cleaned up.
@@ -256,10 +255,9 @@ func TestKillOrphansRemovesStalePIDFile(t *testing.T) {
 }
 
 func TestStopWhenNotRunning(t *testing.T) {
-	manager := New(testRadioConfig(), &fakeStore{})
-	if err := manager.Stop(true); err != nil {
-		t.Errorf("Stop on a manager that never started: %v", err)
-	}
+	inTempDir(t)
+	// Must not panic or block when there is no process to stop.
+	New(testRadioConfig(), &fakeStore{}).stop()
 }
 
 // TestRTLSDRPresentAssumesPresentWithoutSysfs keeps a machine with no sysfs

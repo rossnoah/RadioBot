@@ -41,11 +41,15 @@ This project provides a complete solution for monitoring digital radio communica
    - Add your Deepgram API key
    - Optionally configure notifications and unit mappings
 
-4. To enable auto restart. Run the following command:
+4. Install the service so it starts on boot and recovers on its own:
 
-```bash
-echo "ubuntu ALL=(ALL) NOPASSWD: /sbin/reboot" | sudo tee etc/sudoers.d/radiobot-reboot
-```
+   ```bash
+   sudo cp radiobot.service.example /etc/systemd/system/radiobot.service
+   sudo systemctl enable --now radiobot
+   ```
+
+   The unit carries the recovery policy — see [Recovery](#recovery) below. No
+   sudoers grant is needed: radiobot never reboots the machine itself.
 
 ## Configuration
 
@@ -312,6 +316,42 @@ internal/backup     S3 backup via presigned URLs
 internal/hub        WebSocket fan-out for live dashboard updates
 internal/web        HTTP handlers and embedded templates
 scripts/            the Moonshine Python sidecar
+```
+
+### Recovery
+
+Radio hardware fails in ways that need escalating responses, so recovery is a
+ladder and each rung is owned by whoever implements it best.
+
+1. **radiobot restarts dsd-fme.** The supervisor in `internal/radio` restarts
+   the decoder with exponential backoff (2s doubling to 60s) when it exits,
+   fails to start, or goes quiet for longer than `frozen_timeout_seconds`. A
+   run that lasts five minutes resets the backoff.
+2. **systemd restarts radiobot.** When five consecutive runs fail — or the
+   RTL-SDR disappears from the USB bus, which a decoder restart cannot fix —
+   radiobot exits non-zero. A fresh process gets a fresh libusb context, which
+   sometimes fixes what a child restart cannot.
+3. **systemd reboots the machine.** `StartLimitBurst` and
+   `StartLimitAction=reboot` in the unit file handle this, including the rate
+   limiting.
+
+The one thing systemd cannot do is remember that the reboot did not help — its
+start counter resets on boot. So radiobot records every handoff in the
+`escalations` table, and once there have been three in two hours it stops
+escalating altogether: the device stays up in **degraded mode**, keeps retrying
+the radio every five minutes, shows a banner on `/status`, and sends a GroupMe
+or Discord message saying it has given up. It announces itself again if the
+radio comes back. A device that cannot fix itself should tell you, not
+reboot-loop until someone drives out to it.
+
+`WatchdogSec=120` in the unit catches the remaining case: radiobot itself
+hanging. It pings systemd only while the radio supervisor is still cycling, so
+a wedged process stops the pings and gets restarted.
+
+To watch the ladder in action:
+
+```bash
+journalctl -u radiobot -f
 ```
 
 ### Transcription

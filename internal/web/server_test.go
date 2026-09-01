@@ -12,6 +12,7 @@ import (
 
 	"github.com/rossnoah/radiobot/internal/config"
 	"github.com/rossnoah/radiobot/internal/db"
+	"github.com/rossnoah/radiobot/internal/escalation"
 	"github.com/rossnoah/radiobot/internal/processor"
 	"github.com/rossnoah/radiobot/internal/radio"
 	"github.com/rossnoah/radiobot/internal/transcribe"
@@ -93,7 +94,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 
 	proc := processor.New(cfg, store, fakeTranscriber{}, nil, nil, nil)
 	transcriber := fakeTranscriber{transcribe.Status{Engine: "deepgram"}}
-	server := New(cfg, store, fakeRadio{status}, transcriber, proc, recordFolder, http.NotFoundHandler())
+	server := New(cfg, store, fakeRadio{status}, transcriber, proc, recordFolder, http.NotFoundHandler(), nil)
 	t.Cleanup(func() { server.Close() })
 	return server, recordFolder
 }
@@ -391,5 +392,41 @@ func TestPageCacheReusesRenderedResponse(t *testing.T) {
 	second := get(t, server, "/", true)
 	if second.Body.String() != first.Body.String() {
 		t.Error("index was re-rendered inside the cache window")
+	}
+}
+
+// fakeHealth reports a fixed escalation state.
+type fakeHealth struct{ status escalation.Status }
+
+func (f fakeHealth) Status() escalation.Status { return f.status }
+
+// TestStatusPageShowsDegradedBanner: when the device gives up, the status page
+// is where the alert sends someone to look.
+func TestStatusPageShowsDegradedBanner(t *testing.T) {
+	server, _ := newTestServer(t)
+	server.health = fakeHealth{escalation.Status{
+		Degraded: true,
+		Reason:   "the RTL-SDR is no longer on the USB bus",
+		Since:    time.Date(2026, 9, 1, 3, 4, 5, 0, time.Local),
+	}}
+
+	body := get(t, server, "/status", true).Body.String()
+	for _, want := range []string{
+		"The radio needs attention.",
+		"the RTL-SDR is no longer on the USB bus",
+		"2026-09-01 03:04:05",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("degraded status page missing %q", want)
+		}
+	}
+}
+
+func TestStatusPageHidesBannerWhenHealthy(t *testing.T) {
+	server, _ := newTestServer(t)
+	server.health = fakeHealth{escalation.Status{Degraded: false}}
+
+	if body := get(t, server, "/status", true).Body.String(); strings.Contains(body, "needs attention") {
+		t.Error("a healthy device showed the degraded banner")
 	}
 }

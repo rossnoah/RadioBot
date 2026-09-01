@@ -15,6 +15,7 @@ import (
 
 	"github.com/rossnoah/radiobot/internal/config"
 	"github.com/rossnoah/radiobot/internal/db"
+	"github.com/rossnoah/radiobot/internal/escalation"
 	"github.com/rossnoah/radiobot/internal/processor"
 	"github.com/rossnoah/radiobot/internal/radio"
 	"github.com/rossnoah/radiobot/internal/transcribe"
@@ -35,6 +36,12 @@ type Transcriber interface {
 	Status() transcribe.Status
 }
 
+// HealthReporter reports whether the device has given up on recovering the
+// radio. It may be nil, in which case the dashboard shows nothing about it.
+type HealthReporter interface {
+	Status() escalation.Status
+}
+
 // Server holds everything the handlers need.
 type Server struct {
 	cfg          *config.Config
@@ -43,6 +50,7 @@ type Server struct {
 	transcriber  Transcriber
 	processor    *processor.Processor
 	recordFolder string
+	health       HealthReporter
 	loginLog     *loginLog
 	cache        *responseCache
 	wsHandler    http.Handler
@@ -50,7 +58,7 @@ type Server struct {
 
 // New builds the HTTP server. wsHandler serves the live-update WebSocket.
 func New(cfg *config.Config, store *db.DB, radioStatus RadioStatus, transcriber Transcriber,
-	proc *processor.Processor, recordFolder string, wsHandler http.Handler) *Server {
+	proc *processor.Processor, recordFolder string, wsHandler http.Handler, health HealthReporter) *Server {
 	return &Server{
 		cfg:          cfg,
 		store:        store,
@@ -58,6 +66,7 @@ func New(cfg *config.Config, store *db.DB, radioStatus RadioStatus, transcriber 
 		transcriber:  transcriber,
 		processor:    proc,
 		recordFolder: recordFolder,
+		health:       health,
 		loginLog:     newLoginLog(),
 		cache:        newResponseCache(),
 		wsHandler:    wsHandler,
@@ -337,12 +346,28 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	render(w, http.StatusOK, "status.html", statusView{
 		Branding:        s.cfg.Application.Branding,
+		Degraded:        s.degradedView(),
 		Radio:           newRadioView(s.radio.Status()),
 		Transcription:   newTranscriptionView(s.transcriber.Status()),
 		TotalRecordings: totalRecordings,
 		StorageUsed:     formatStorage(totalBytes),
 		Restarts:        rows,
 	})
+}
+
+// degradedView renders the give-up banner, or nil when the device is coping.
+func (s *Server) degradedView() *degradedView {
+	if s.health == nil {
+		return nil
+	}
+	status := s.health.Status()
+	if !status.Degraded {
+		return nil
+	}
+	return &degradedView{
+		Reason: status.Reason,
+		Since:  status.Since.Format("2006-01-02 15:04:05"),
+	}
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {

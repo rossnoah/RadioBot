@@ -24,6 +24,17 @@
 
       <h1 class="text-3xl font-extrabold text-indigo-600 dark:text-indigo-400">System Status</h1>
 
+      {{ with .Degraded }}
+      <div class="bg-red-100 border border-red-400 text-red-800 dark:bg-red-900 dark:border-red-700 dark:text-red-200 rounded-lg p-4 w-full">
+        <p class="font-bold">The radio needs attention.</p>
+        <p class="mt-1 text-sm">
+          Restarting is not fixing it, so RadioBot has stopped trying and is staying up to serve this page.
+        </p>
+        <p class="mt-2 text-sm"><span class="font-semibold">Reason:</span> {{ .Reason }}</p>
+        <p class="text-sm"><span class="font-semibold">Since:</span> {{ .Since }}</p>
+      </div>
+      {{ end }}
+
       <!-- Radio Status Card -->
       <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full">
         <h2 class="text-lg font-bold mb-4 text-gray-700 dark:text-gray-300">Radio</h2>
