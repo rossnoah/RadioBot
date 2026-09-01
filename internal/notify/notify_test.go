@@ -1,10 +1,13 @@
 package notify
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -230,5 +233,99 @@ func TestAlertSkipsDisabledServices(t *testing.T) {
 
 	if captured.count() != 0 {
 		t.Errorf("posted %d times with every service disabled, want 0", captured.count())
+	}
+}
+
+// TestConsoleModeSendsNothing is the guard that matters: these alerts reach
+// real people, so a run against a real config must be able to withhold them.
+func TestConsoleModeSendsNothing(t *testing.T) {
+	captured := &capture{}
+	server := httptest.NewServer(http.HandlerFunc(captured.handler))
+	defer server.Close()
+
+	cfg := config.Notifications{
+		Discord: config.Discord{Enabled: true, WebhookURL: server.URL},
+		GroupMe: config.GroupMe{Enabled: true, BotID: "bot-123"},
+	}
+	cfg.Wordlists.Standard.Words = []string{"fire"}
+
+	notifier := NewConsole(cfg)
+	notifier.client = server.Client()
+	originalEndpoint := groupmeEndpoint
+	groupmeEndpoint = server.URL
+	defer func() { groupmeEndpoint = originalEndpoint }()
+
+	// Both delivery paths, on a message that definitely matches.
+	notifier.Check("structure fire on main", "Unit 1")
+	notifier.Alert("RadioBot has given up on the radio.")
+
+	if captured.count() != 0 {
+		t.Errorf("console mode delivered %d notifications, want 0: %v",
+			captured.count(), captured.bodies)
+	}
+}
+
+// TestConsoleModeStillEvaluatesWordlists: console mode has to exercise the
+// same decisions, or it is not a test of anything.
+func TestConsoleModeStillEvaluatesWordlists(t *testing.T) {
+	cfg := config.Notifications{
+		Discord: config.Discord{Enabled: true, WebhookURL: "https://discord.example/webhooks/secret"},
+	}
+	cfg.Wordlists.Standard.Words = []string{"fire"}
+
+	// Neither call may panic or reach the network; the difference between a
+	// match and a miss is visible in the logs, not in behaviour here.
+	notifier := NewConsole(cfg)
+	notifier.Check("routine traffic stop", "Unit 1")
+	notifier.Check("structure fire on main", "Unit 1")
+}
+
+// TestConsoleModeLogsHonestly guards the specific bug this replaced: the
+// withheld path must not fall through to the "notification sent" log line.
+func TestConsoleModeLogsHonestly(t *testing.T) {
+	var buf bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(original)
+
+	cfg := config.Notifications{
+		GroupMe: config.GroupMe{Enabled: true, BotID: "super-secret-bot-id"},
+		Discord: config.Discord{Enabled: true, WebhookURL: "https://discord.example/webhooks/super-secret-token"},
+	}
+	NewConsole(cfg).Alert("RadioBot has given up on the radio.")
+
+	logged := buf.String()
+	if strings.Contains(logged, "notification sent") {
+		t.Errorf("console mode claimed a delivery:\n%s", logged)
+	}
+	if !strings.Contains(logged, "withheld") {
+		t.Errorf("console mode did not say the notification was withheld:\n%s", logged)
+	}
+	// Credentials must never reach the logs.
+	for _, secret := range []string{"super-secret-bot-id", "super-secret-token"} {
+		if strings.Contains(logged, secret) {
+			t.Errorf("a credential leaked into the logs (%q):\n%s", secret, logged)
+		}
+	}
+}
+
+// TestDeliveryDoesNotLogCredentials covers the same rule on the failure path,
+// where an unreachable service must not print the webhook it tried.
+func TestDeliveryDoesNotLogCredentials(t *testing.T) {
+	var buf bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(original)
+
+	cfg := config.Notifications{
+		Discord: config.Discord{
+			Enabled:    true,
+			WebhookURL: "http://127.0.0.1:1/webhooks/super-secret-token",
+		},
+	}
+	New(cfg).Alert("this will fail to send")
+
+	if logged := buf.String(); strings.Contains(logged, "super-secret-token") {
+		t.Errorf("a webhook credential leaked into the logs:\n%s", logged)
 	}
 }

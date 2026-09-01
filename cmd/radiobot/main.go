@@ -35,12 +35,14 @@ const recordFolder = "files"
 func main() {
 	addr := flag.String("addr", ":4000", "address for the web server to listen on")
 	configPath := flag.String("config", config.Path, "path to config.yaml")
+	notifyMode := flag.String("notify", "send",
+		"where alerts go: \"send\" delivers to GroupMe/Discord, \"console\" only logs them (use this when testing against a real config)")
 	flag.Usage = usage
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	if err := run(*addr, *configPath, flag.Args()); err != nil {
+	if err := run(*addr, *configPath, *notifyMode, flag.Args()); err != nil {
 		slog.Error("fatal", "error", err)
 		os.Exit(1)
 	}
@@ -53,12 +55,15 @@ Usage:
   radiobot [flags]                 run the server
   radiobot [flags] ingest <file>   transcribe and file one WAV, then exit
 
+When testing against a real config, pass -notify console so alerts are logged
+instead of delivered to GroupMe or Discord.
+
 Flags:
 `)
 	flag.PrintDefaults()
 }
 
-func run(addr, configPath string, args []string) error {
+func run(addr, configPath, notifyMode string, args []string) error {
 	for _, dir := range []string{"logs", "temp", recordFolder} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("creating %s: %w", dir, err)
@@ -83,10 +88,30 @@ func run(addr, configPath string, args []string) error {
 	defer store.Close()
 	slog.Info("database initialized")
 
-	if len(args) > 0 {
-		return runSubcommand(cfg, store, args)
+	notifier, err := newNotifier(cfg, notifyMode)
+	if err != nil {
+		return err
 	}
-	return runServer(addr, cfg, store)
+
+	if len(args) > 0 {
+		return runSubcommand(cfg, store, notifier, args)
+	}
+	return runServer(addr, cfg, store, notifier)
+}
+
+// newNotifier builds the alert sender for the chosen mode. Console mode exists
+// because these alerts reach real people: running the app against a real
+// config to test something should not page them.
+func newNotifier(cfg *config.Config, mode string) (*notify.Notifier, error) {
+	switch mode {
+	case "send":
+		return notify.New(cfg.Notifications), nil
+	case "console":
+		slog.Warn("notifications are in console mode; nothing will be delivered")
+		return notify.NewConsole(cfg.Notifications), nil
+	default:
+		return nil, fmt.Errorf("unknown -notify mode %q; want \"send\" or \"console\"", mode)
+	}
 }
 
 // checkArgs validates the subcommand shape.
@@ -107,10 +132,10 @@ func checkArgs(args []string) error {
 
 // runSubcommand handles the one-shot CLI modes, which share the config and
 // database with the server but start none of the background services.
-func runSubcommand(cfg *config.Config, store *db.DB, args []string) error {
+func runSubcommand(cfg *config.Config, store *db.DB, notifier *notify.Notifier, args []string) error {
 	switch args[0] {
 	case "ingest":
-		return ingest(cfg, store, args[1])
+		return ingest(cfg, store, notifier, args[1])
 	default:
 		return fmt.Errorf("unknown command %q; run with -h for usage", args[0])
 	}
@@ -118,9 +143,8 @@ func runSubcommand(cfg *config.Config, store *db.DB, args []string) error {
 
 // ingest transcribes and records a single WAV file supplied by an external
 // script, without emitting a live update (no browser is expecting one).
-func ingest(cfg *config.Config, store *db.DB, filePath string) error {
+func ingest(cfg *config.Config, store *db.DB, notifier *notify.Notifier, filePath string) error {
 	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, store)
-	notifier := notify.New(cfg.Notifications)
 	proc := processor.New(cfg, store, transcriber, notifier, nil, nil)
 
 	if _, err := os.Stat(filePath); err != nil {
@@ -133,7 +157,7 @@ func ingest(cfg *config.Config, store *db.DB, filePath string) error {
 	return nil
 }
 
-func runServer(addr string, cfg *config.Config, store *db.DB) error {
+func runServer(addr string, cfg *config.Config, store *db.DB, notifier *notify.Notifier) error {
 	// Cancelled on the first shutdown signal, which stops every background service.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -143,7 +167,6 @@ func runServer(addr string, cfg *config.Config, store *db.DB) error {
 
 	events := hub.New()
 	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, store)
-	notifier := notify.New(cfg.Notifications)
 	radioManager := radio.New(cfg.Radio, store)
 	proc := processor.New(cfg, store, transcriber, notifier, events, radioManager)
 

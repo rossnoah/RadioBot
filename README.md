@@ -283,6 +283,17 @@ Start the server:
 Access the web interface at `http://localhost:4000`. Use `-addr` to listen
 somewhere else, and `-config` to point at a different config file.
 
+**When testing against a real `config.yaml`, pass `-notify console`:**
+
+```bash
+./radiobot -notify console
+```
+
+Alert keywords and escalations both send to GroupMe and Discord, so running
+the app on a laptop — where `dsd-fme` is usually missing, and the supervisor
+will escalate — posts real messages to real people. Console mode makes every
+same decision and logs what it would have sent instead of sending it.
+
 To transcribe and file a single WAV from an external script:
 
 ```bash
