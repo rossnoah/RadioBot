@@ -93,6 +93,66 @@
         {{ end }}
       </div>
 
+      <!-- Host Card -->
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full">
+        <h2 class="text-lg font-bold mb-4 text-gray-700 dark:text-gray-300">System</h2>
+
+        {{ with .System.Disk }}
+        <div class="mb-4">
+          <div class="flex items-baseline justify-between mb-1">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Disk</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Label }}</span>
+          </div>
+          <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+            <div class="h-2 rounded-full {{ .Class }}" style="{{ .Width }}"></div>
+          </div>
+          <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ .Detail }}</p>
+        </div>
+        {{ end }}
+
+        {{ with .System.Memory }}
+        <div class="mb-4">
+          <div class="flex items-baseline justify-between mb-1">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Memory</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Label }}</span>
+          </div>
+          <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+            <div class="h-2 rounded-full {{ .Class }}" style="{{ .Width }}"></div>
+          </div>
+          <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ .Detail }}</p>
+        </div>
+        {{ end }}
+
+        {{ if .System.Temperature }}
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">CPU Temperature</span>
+          <span class="text-sm font-semibold {{ .System.TempClass }}">{{ .System.Temperature }}</span>
+        </div>
+        {{ end }}
+        {{ if .System.LoadAvg }}
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Load Average</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .System.LoadAvg }}</span>
+        </div>
+        {{ end }}
+        {{ if .System.Uptime }}
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Machine Uptime</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .System.Uptime }}</span>
+        </div>
+        {{ end }}
+        {{ if .System.Hostname }}
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Host</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .System.Hostname }}</span>
+        </div>
+        {{ end }}
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Platform</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .System.Platform }}</span>
+        </div>
+      </div>
+
       <!-- Recordings Stats Card -->
       <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full">
         <h2 class="text-lg font-bold mb-4 text-gray-700 dark:text-gray-300">Recordings</h2>
@@ -103,6 +163,65 @@
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Storage Used</span>
           <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .StorageUsed }}</span>
+        </div>
+      </div>
+
+<!-- Process Card -->
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 w-full">
+        <h2 class="text-lg font-bold mb-4 text-gray-700 dark:text-gray-300">Process</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Uptime</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.Uptime }}</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Goroutines</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.Goroutines }}</span>
+          </div>
+          {{ if .Process.RSS }}
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Resident Memory</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.RSS }}</span>
+          </div>
+          {{ end }}
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">From OS</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.Sys }}</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Heap In Use</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.HeapAlloc }}</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Heap Reserved</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.HeapSys }}</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Collections</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.NumGC }}</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Collection</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.LastGC }}</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Total GC Pause</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.GCPauseTotal }}</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">GC CPU Share</span>
+            <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ .Process.GCCPU }}</span>
+          </div>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-2">
+          <span class="text-xs text-gray-400 dark:text-gray-500">Go {{ .Process.GoVersion }}</span>
+          {{ if .Process.Revision }}
+          <span class="text-xs text-gray-400 dark:text-gray-500 font-mono">
+            {{ .Process.Revision }}{{ if .Process.Dirty }}+dirty{{ end }}
+            {{ if .Process.BuildTime }}· {{ .Process.BuildTime }}{{ end }}
+          </span>
+          {{ end }}
         </div>
       </div>
 

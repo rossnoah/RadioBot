@@ -18,6 +18,7 @@ import (
 	"github.com/rossnoah/radiobot/internal/escalation"
 	"github.com/rossnoah/radiobot/internal/processor"
 	"github.com/rossnoah/radiobot/internal/radio"
+	"github.com/rossnoah/radiobot/internal/sysinfo"
 	"github.com/rossnoah/radiobot/internal/transcribe"
 	"github.com/rossnoah/radiobot/internal/util"
 )
@@ -344,9 +345,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, row)
 	}
 
+	// Report disk for the filesystem holding the recordings, since that is
+	// the one that fills up.
+	info := sysinfo.Collect(s.recordFolder)
+
 	render(w, http.StatusOK, "status.html", statusView{
 		Branding:        s.cfg.Application.Branding,
 		Degraded:        s.degradedView(),
+		System:          newSystemView(info.Host),
+		Process:         newProcessView(info.Process, info.Build),
 		Radio:           newRadioView(s.radio.Status()),
 		Transcription:   newTranscriptionView(s.transcriber.Status()),
 		TotalRecordings: totalRecordings,

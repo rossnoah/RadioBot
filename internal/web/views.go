@@ -102,6 +102,8 @@ type degradedView struct {
 type statusView struct {
 	Branding        string
 	Degraded        *degradedView
+	System          systemView
+	Process         processView
 	Radio           radioView
 	Transcription   transcriptionView
 	TotalRecordings int
