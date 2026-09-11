@@ -101,11 +101,22 @@ radio:
 apis:
   # Deepgram API key for audio transcription
   deepgram_api_key: "your_deepgram_api_key_here"
+
+  # Optional: terms Deepgram should listen for
+  deepgram_keyterms:
+    - "Smith Hall"
+    - "noise complaint"
 ```
 
 - `deepgram_api_key`: Required. Your Deepgram API key from https://deepgram.com
   - Used for converting radio audio recordings to text transcripts
   - Free tier available for testing
+- `deepgram_keyterms`: Optional. Names, places, callsigns, and jargon that
+  Deepgram should recognize ([Keyterm Prompting](https://developers.deepgram.com/docs/keyterm))
+  - Each list entry is one term; a multi-word entry is boosted as a single phrase
+  - Capitalize proper nouns the way you want them to appear in transcripts
+  - Up to 100 terms; 20-50 well-chosen ones work best
+  - Only affects Deepgram, not the on-device Moonshine fallback
 
 #### 4. Unit Mappings
 

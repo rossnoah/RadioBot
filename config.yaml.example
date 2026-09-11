@@ -67,6 +67,16 @@ apis:
   # Used for converting radio audio recordings to text transcripts
   deepgram_api_key: "your_deepgram_api_key_here"
 
+  # Key terms Deepgram should listen for (Keyterm Prompting). Use this for
+  # names, places, unit callsigns, and radio jargon that come out garbled in
+  # transcripts. Each entry is one term; a multi-word entry is treated as a
+  # single phrase. Capitalize proper nouns the way you want them written.
+  # Up to 100 terms, but 20-50 well-chosen ones work best.
+  # deepgram_keyterms:
+  #   - "Smith Hall"
+  #   - "noise complaint"
+  #   - "ten four"
+
 # ============================================================================
 # UNIT MAPPINGS
 # ============================================================================

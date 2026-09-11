@@ -53,6 +53,22 @@ DEEPGRAM_API_KEY = config.get("apis", {}).get("deepgram_api_key")
 if not DEEPGRAM_API_KEY:
     raise ValueError("apis.deepgram_api_key is not set in config.yaml")
 
+# Key terms Deepgram should listen for (Keyterm Prompting). Each entry is one
+# term; a multi-word entry is boosted as a single phrase. Deepgram accepts at
+# most 100 per request.
+MAX_DEEPGRAM_KEYTERMS = 100
+DEEPGRAM_KEYTERMS = config.get("apis", {}).get("deepgram_keyterms") or []
+if not isinstance(DEEPGRAM_KEYTERMS, list):
+    raise ValueError("apis.deepgram_keyterms must be a list of terms")
+DEEPGRAM_KEYTERMS = [str(term).strip() for term in DEEPGRAM_KEYTERMS]
+if any(not term for term in DEEPGRAM_KEYTERMS):
+    raise ValueError("apis.deepgram_keyterms contains an empty entry")
+if len(DEEPGRAM_KEYTERMS) > MAX_DEEPGRAM_KEYTERMS:
+    raise ValueError(
+        f"apis.deepgram_keyterms lists {len(DEEPGRAM_KEYTERMS)} terms; "
+        f"Deepgram allows at most {MAX_DEEPGRAM_KEYTERMS}"
+    )
+
 
 # Radio settings validation
 radio_config = config.get("radio", {})

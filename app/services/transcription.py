@@ -6,7 +6,7 @@ import httpx
 from deepgram import DeepgramClient
 
 from app.models import save_transcript
-from app.config import DEEPGRAM_API_KEY
+from app.config import DEEPGRAM_API_KEY, DEEPGRAM_KEYTERMS
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +46,13 @@ def _try_deepgram(file_path):
     with open(file_path, "rb") as file:
         buffer_data = file.read()
 
+    # The SDK sends a list as one repeated keyterm parameter per term, which
+    # is what Deepgram requires: a joined list is treated as a single phrase.
     response = deepgram.listen.v1.media.transcribe_file(
         request=buffer_data,
         model="nova-3",
-        smart_format=True
+        smart_format=True,
+        keyterm=DEEPGRAM_KEYTERMS or None,
     )
 
     transcript = response.results.channels[0].alternatives[0].transcript
