@@ -9,12 +9,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 )
 
 const (
-	deepgramURL     = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true"
+	deepgramURL     = "https://api.deepgram.com/v1/listen"
 	deepgramTimeout = 300 * time.Second
 	connectTimeout  = 10 * time.Second
 )
@@ -25,13 +26,17 @@ const (
 type deepgramClient struct {
 	apiKey string
 	url    string
-	http   *http.Client
+	// keyterms are sent with every request to boost recognition of the
+	// names, callsigns, and jargon Nova-3 would otherwise mishear.
+	keyterms []string
+	http     *http.Client
 }
 
-func newDeepgramClient(apiKey string) *deepgramClient {
+func newDeepgramClient(apiKey string, keyterms []string) *deepgramClient {
 	return &deepgramClient{
-		apiKey: apiKey,
-		url:    deepgramURL,
+		apiKey:   apiKey,
+		url:      deepgramURL,
+		keyterms: keyterms,
 		http: &http.Client{
 			Timeout: deepgramTimeout,
 			Transport: &http.Transport{
@@ -62,7 +67,7 @@ func (c *deepgramClient) transcribe(ctx context.Context, filePath string) (strin
 		return "", "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(audio))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.requestURL(), bytes.NewReader(audio))
 	if err != nil {
 		return "", "", err
 	}
@@ -91,6 +96,19 @@ func (c *deepgramClient) transcribe(ctx context.Context, filePath string) (strin
 		return "", "", fmt.Errorf("deepgram response contained no alternatives")
 	}
 	return parsed.Results.Channels[0].Alternatives[0].Transcript, string(body), nil
+}
+
+// requestURL appends the model options to the endpoint. Each key term is a
+// separate keyterm parameter: Deepgram treats a comma-joined list as one
+// literal phrase and boosts nothing.
+func (c *deepgramClient) requestURL() string {
+	q := url.Values{}
+	q.Set("model", "nova-3")
+	q.Set("smart_format", "true")
+	for _, term := range c.keyterms {
+		q.Add("keyterm", term)
+	}
+	return c.url + "?" + q.Encode()
 }
 
 func truncate(s string, n int) string {

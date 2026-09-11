@@ -160,7 +160,7 @@ func runSubcommand(cfg *config.Config, store *db.DB, notifier *notify.Notifier,
 // script, without emitting a live update (no browser is expecting one).
 func ingest(cfg *config.Config, store *db.DB, notifier *notify.Notifier,
 	moonshineOpts moonshine.Options, filePath string) error {
-	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, store, moonshineOpts)
+	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, cfg.APIs.DeepgramKeyterms, store, moonshineOpts)
 	defer transcriber.Close()
 	proc := processor.New(cfg, store, transcriber, notifier, nil, nil)
 
@@ -199,7 +199,7 @@ func runServer(addr string, cfg *config.Config, store *db.DB, notifier *notify.N
 	defer sd.Close()
 
 	events := hub.New()
-	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, store, moonshineOpts)
+	transcriber := transcribe.New(cfg.APIs.DeepgramAPIKey, cfg.APIs.DeepgramKeyterms, store, moonshineOpts)
 	defer transcriber.Close()
 	radioManager := radio.New(cfg.Radio, store)
 	proc := processor.New(cfg, store, transcriber, notifier, events, radioManager)

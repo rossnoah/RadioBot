@@ -54,10 +54,11 @@ type Service struct {
 }
 
 // New builds a transcription service backed by the given Deepgram key, with
-// the on-device Moonshine model as its fallback.
-func New(apiKey string, store Store, moonshineOpts moonshine.Options) *Service {
+// the on-device Moonshine model as its fallback. keyterms are passed to
+// Deepgram on every request to improve recognition of domain vocabulary.
+func New(apiKey string, keyterms []string, store Store, moonshineOpts moonshine.Options) *Service {
 	return &Service{
-		deepgram: newDeepgramClient(apiKey),
+		deepgram: newDeepgramClient(apiKey, keyterms),
 		fallback: newMoonshineEngine(moonshineOpts),
 		store:    store,
 	}
@@ -70,7 +71,8 @@ func (s *Service) Close() {
 	}
 }
 
-// SetEndpoint overrides the Deepgram endpoint. It exists for tests.
+// SetEndpoint overrides the Deepgram endpoint, without its query string. It
+// exists for tests.
 func (s *Service) SetEndpoint(url string) { s.deepgram.url = url }
 
 // Status returns the current engine state.

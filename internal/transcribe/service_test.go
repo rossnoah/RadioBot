@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -71,7 +73,7 @@ func newService(t *testing.T, handler http.HandlerFunc) (*Service, *fakeStore) {
 	t.Cleanup(server.Close)
 
 	store := &fakeStore{}
-	service := New("test-key", store, moonshine.Options{})
+	service := New("test-key", nil, store, moonshine.Options{})
 	service.SetEndpoint(server.URL)
 
 	// Swap in a stub so the tests never touch the real library or the model
@@ -144,6 +146,42 @@ func TestTranscribeSuccess(t *testing.T) {
 
 	if status := service.Status(); status.Engine != "deepgram" {
 		t.Errorf("engine = %q, want deepgram", status.Engine)
+	}
+}
+
+// TestKeytermsAreSentAsRepeatedParameters guards the query shape: Deepgram
+// only boosts terms that arrive as separate keyterm parameters, and treats a
+// comma-joined list as a single phrase.
+func TestKeytermsAreSentAsRepeatedParameters(t *testing.T) {
+	var got url.Values
+	service, _ := newService(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		w.Write([]byte(deepgramBody))
+	})
+	service.deepgram.keyterms = []string{"Smith Hall", "ten four"}
+
+	service.Transcribe(context.Background(), tempAudio(t), nil)
+
+	want := []string{"Smith Hall", "ten four"}
+	if !reflect.DeepEqual(got["keyterm"], want) {
+		t.Errorf("keyterm = %q, want %q", got["keyterm"], want)
+	}
+	if got.Get("model") != "nova-3" || got.Get("smart_format") != "true" {
+		t.Errorf("model options were dropped from the query: %v", got)
+	}
+}
+
+func TestNoKeytermsSendsNoKeytermParameter(t *testing.T) {
+	var got url.Values
+	service, _ := newService(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		w.Write([]byte(deepgramBody))
+	})
+
+	service.Transcribe(context.Background(), tempAudio(t), nil)
+
+	if _, ok := got["keyterm"]; ok {
+		t.Errorf("keyterm sent with none configured: %v", got["keyterm"])
 	}
 }
 

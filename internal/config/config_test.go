@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -86,6 +87,33 @@ func TestLoadRejectsMissingFields(t *testing.T) {
 				t.Errorf("Load error = %v, want one mentioning %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestDeepgramKeyterms(t *testing.T) {
+	cfg, err := Load(writeConfig(t, validConfig+`  deepgram_keyterms:
+    - "Smith Hall"
+    - "  ten four "
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"Smith Hall", "ten four"}
+	if !reflect.DeepEqual(cfg.APIs.DeepgramKeyterms, want) {
+		t.Errorf("keyterms = %q, want %q", cfg.APIs.DeepgramKeyterms, want)
+	}
+}
+
+func TestDeepgramKeytermsRejectsBlankAndOversized(t *testing.T) {
+	_, err := Load(writeConfig(t, validConfig+"  deepgram_keyterms: [\"Smith Hall\", \"  \"]\n"))
+	if err == nil || !strings.Contains(err.Error(), "empty entry") {
+		t.Errorf("blank term: Load error = %v, want one mentioning an empty entry", err)
+	}
+
+	many := validConfig + "  deepgram_keyterms:\n" + strings.Repeat("    - term\n", MaxDeepgramKeyterms+1)
+	_, err = Load(writeConfig(t, many))
+	if err == nil || !strings.Contains(err.Error(), "at most") {
+		t.Errorf("too many terms: Load error = %v, want one mentioning the limit", err)
 	}
 }
 

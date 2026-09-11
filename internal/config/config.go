@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -53,7 +54,15 @@ func (r Radio) FrozenTimeout() time.Duration {
 
 type APIs struct {
 	DeepgramAPIKey string `yaml:"deepgram_api_key"`
+
+	// DeepgramKeyterms are words and phrases Deepgram should listen for
+	// (its Keyterm Prompting feature). Each entry is one term; a multi-word
+	// entry is boosted as a single phrase.
+	DeepgramKeyterms []string `yaml:"deepgram_keyterms"`
 }
+
+// MaxDeepgramKeyterms is the most terms Deepgram accepts on one request.
+const MaxDeepgramKeyterms = 100
 
 type Notifications struct {
 	GroupMe   GroupMe   `yaml:"groupme"`
@@ -128,6 +137,15 @@ func (c *Config) validate() error {
 	if c.APIs.DeepgramAPIKey == "" {
 		return fmt.Errorf("apis.deepgram_api_key is not set in config.yaml")
 	}
+	if len(c.APIs.DeepgramKeyterms) > MaxDeepgramKeyterms {
+		return fmt.Errorf("apis.deepgram_keyterms lists %d terms; Deepgram allows at most %d",
+			len(c.APIs.DeepgramKeyterms), MaxDeepgramKeyterms)
+	}
+	for _, term := range c.APIs.DeepgramKeyterms {
+		if strings.TrimSpace(term) == "" {
+			return fmt.Errorf("apis.deepgram_keyterms contains an empty entry")
+		}
+	}
 	if c.Radio.Frequency == 0 {
 		return fmt.Errorf("radio.frequency is not set in config.yaml")
 	}
@@ -155,6 +173,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Units == nil {
 		c.Units = map[int]string{}
+	}
+	for i, term := range c.APIs.DeepgramKeyterms {
+		c.APIs.DeepgramKeyterms[i] = strings.TrimSpace(term)
 	}
 }
 
