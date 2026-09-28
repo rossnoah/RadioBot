@@ -11,6 +11,7 @@ from app.services.notifications import check_transcript_for_alerts
 from app.services.radio_manager import record_radio_message
 from app.utils import (
     parse_time_from_filename,
+    parse_datetime_from_filename,
     extract_radio_uid_from_filename,
     get_wav_length,
     get_unit_info,
@@ -130,7 +131,9 @@ def process_file(file_path: str, emit_event: bool = True) -> bool:
     # Step 4: Check for alerts
     if transcript:
         try:
-            check_transcript_for_alerts(transcript, file_data['unit_name'])
+            check_transcript_for_alerts(
+                transcript, file_data['unit_name'], parse_datetime_from_filename(file_data['filename'])
+            )
         except Exception as e:
             logger.error(f"Error checking transcript for alerts: {e}", exc_info=True)
 
@@ -205,7 +208,7 @@ def inject_fake_message(transcript: str, unit_id: int, unit_name: str, record_fo
 
     # Run normal alert checks
     try:
-        check_transcript_for_alerts(transcript, unit_name)
+        check_transcript_for_alerts(transcript, unit_name, now)
     except Exception as e:
         logger.error(f"Error checking fake transcript for alerts: {e}", exc_info=True)
 

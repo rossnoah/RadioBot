@@ -100,6 +100,15 @@ def parse_time_from_filename(filename: str) -> str:
         return filename
 
 
+def parse_datetime_from_filename(filename: str) -> datetime | None:
+    """Parse the recording datetime from a YYYYMMDD_HHMMSS_... filename."""
+    try:
+        parts = os.path.basename(filename).split("_")
+        return datetime.strptime(f"{parts[0]}_{parts[1].zfill(6)}", "%Y%m%d_%H%M%S")
+    except (ValueError, IndexError):
+        return None
+
+
 def extract_radio_uid_from_filename(filename: str) -> int | None:
     """Extract radio unit ID from filename."""
     try:
