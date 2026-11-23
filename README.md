@@ -191,6 +191,12 @@ notifications:
       min_occurrences: 2
       words:
         - "example"
+
+    # Blocked wordlist: suppresses the alert when matched
+    blocked:
+      words:
+        - "radio check"
+        - ["John", "Doe"]
 ```
 
 **Standard Wordlist**:
@@ -203,6 +209,13 @@ notifications:
 - Requires word to appear multiple times in a single transmission
 - Reduces false positives for common words
 - `min_occurrences`: Set the threshold (default: 2)
+
+**Blocked Wordlist**:
+
+- Suppresses the GroupMe/Discord notification for a transmission that would otherwise alert
+- The transmission is still transcribed, logged, and shown in the web interface
+- Each entry is a single word/phrase, or a list of words that must all appear in the transmission (in any order), such as a first and last name
+- Matching is case-insensitive
 
 ### Configuration Examples
 

@@ -103,6 +103,29 @@ def check_string_min_occurrences(string, targetedWords, min_occurrences=2, recor
     )
 
 
+def _blocked_terms(entry):
+    """Normalize a blocked entry to its list of terms.
+
+    An entry is either one word/phrase or a list of words that must all appear.
+    """
+    terms = entry if isinstance(entry, (list, tuple)) else [entry]
+    return [str(term).strip().lower() for term in terms if str(term).strip()]
+
+
+def is_blocked(string, blocked_entries):
+    """Whether the string matches a blocked entry, suppressing notifications.
+
+    Terms match as case-insensitive substrings. A list entry matches only when
+    every one of its terms appears, in any order and anywhere in the string.
+    """
+    text = string.lower()
+    for entry in blocked_entries or []:
+        terms = _blocked_terms(entry)
+        if terms and all(term in text for term in terms):
+            return True
+    return False
+
+
 def send_groupme_message(bot_id, message, unit_name):
     """Send message to GroupMe."""
     if bot_id is None:
@@ -153,6 +176,11 @@ def check_transcript_for_alerts(message, unit_name, recorded_at: datetime | None
     )
 
     if not alert_triggered:
+        return
+
+    # Blocked transcripts are still logged and shown; they just don't notify.
+    if is_blocked(message, (wordlists.get("blocked") or {}).get("words")):
+        logger.info(f"Alert suppressed by blocked wordlist for unit: {unit_name}")
         return
 
     # Send notifications based on enabled services

@@ -164,6 +164,18 @@ notifications:
         # - "party"
         # - "noise"
 
+    # Blocked wordlist: SUPPRESSES the alert when matched
+    # A transmission that would have triggered an alert is not sent to
+    # GroupMe/Discord if it matches an entry here. It is still transcribed,
+    # logged, and shown in the web interface like normal.
+    # Each entry is either a single word/phrase, or a list of words that must
+    # ALL appear somewhere in the transmission (in any order), e.g. a first
+    # and last name. Matching is case-insensitive.
+    blocked:
+      words: []
+        # - "radio check"
+        # - ["John", "Doe"]
+
 # ============================================================================
 # S3 BACKUP (OPTIONAL)
 # ============================================================================
